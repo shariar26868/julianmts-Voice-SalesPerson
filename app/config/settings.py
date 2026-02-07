@@ -4,12 +4,12 @@ from typing import Optional
 
 class Settings(BaseSettings):
     # API Keys
-    OPENAI_API_KEY: str
-    ELEVENLABS_API_KEY: str
+    OPENAI_API_KEY: Optional[str] = None
+    ELEVENLABS_API_KEY: Optional[str] = None
     
     # AWS Configuration
-    AWS_ACCESS_KEY_ID: str
-    AWS_SECRET_ACCESS_KEY: str
+    AWS_ACCESS_KEY_ID: Optional[str] = None
+    AWS_SECRET_ACCESS_KEY: Optional[str] = None
     AWS_REGION: str = "ap-south-1"
     S3_BUCKET_NAME: str = "sales-training-audio"
     

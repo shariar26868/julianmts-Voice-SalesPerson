@@ -95,7 +95,7 @@ def merge_audio_files(audio_files: list) -> bytes:
     Merge multiple audio files into one
     This is a placeholder - implement with pydub
     """
-    # TODO: Implement audio merging with pydub
+    # TODO: 
     pass
 
 
@@ -104,14 +104,12 @@ def extract_speaker_from_message(message: str) -> tuple:
     Extract if message is directed to specific person
     Returns: (is_directed, person_name)
     """
-    
-    # Check for patterns like "Person1, what do you think?"
     import re
     
     patterns = [
-        r"^([A-Z][a-z]+),",  # "John, what do you think?"
-        r"I (?:asked|ask) (?:to )?([A-Z][a-z]+)",  # "I asked to John"
-        r"(?:Hey |Hi )?([A-Z][a-z]+),",  # "Hey John,"
+        r"^([A-Z][a-z]+),",  
+        r"I (?:asked|ask) (?:to )?([A-Z][a-z]+)",  
+        r"(?:Hey |Hi )?([A-Z][a-z]+),",  
     ]
     
     for pattern in patterns:
