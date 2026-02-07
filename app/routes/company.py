@@ -592,42 +592,6 @@ async def get_company_data(company_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# @router.post("/{company_id}/refresh-data", response_model=dict)
-# async def refresh_company_data(company_id: str):
-#     """Re-scrape and update company data"""
-    
-#     try:
-#         collection = get_company_collection()
-#         company = await collection.find_one({"_id": company_id})
-        
-#         if not company:
-#             raise HTTPException(status_code=404, detail="Company not found")
-        
-#         scraped_data = await scraper.scrape_company_data(company["company_url"])
-        
-#         await collection.update_one(
-#             {"_id": company_id},
-#             {
-#                 "$set": {
-#                     "company_data": scraped_data,
-#                     "last_updated": current_timestamp()
-#                 }
-#             }
-#         )
-        
-#         return build_api_response(
-#             success=True,
-#             data={"company_data": scraped_data},
-#             message="Company data refreshed successfully"
-#         )
-    
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.post("/{company_id}/representatives", response_model=dict)
 async def add_representative(
     company_id: str,
