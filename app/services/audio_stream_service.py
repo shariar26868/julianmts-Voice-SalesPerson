@@ -7,7 +7,7 @@ class AudioStreamService:
     """Handle audio streaming for WebSocket connections"""
     
     def __init__(self):
-        self.active_streams = {}  # meeting_id: {audio_chunks, is_speaking}
+        self.active_streams = {}
     
     def start_stream(self, meeting_id: str):
         """Start a new audio stream for a meeting"""
@@ -16,6 +16,7 @@ class AudioStreamService:
             "is_speaking": False,
             "last_activity": None
         }
+        print(f"🎬 Started audio stream for meeting {meeting_id}")
     
     def add_audio_chunk(self, meeting_id: str, audio_data: str):
         """
@@ -28,25 +29,34 @@ class AudioStreamService:
         if meeting_id not in self.active_streams:
             self.start_stream(meeting_id)
         
-        # Decode base64 audio
-        audio_bytes = base64.b64decode(audio_data)
-        self.active_streams[meeting_id]["audio_chunks"].append(audio_bytes)
-        self.active_streams[meeting_id]["is_speaking"] = True
+        try:
+            audio_bytes = base64.b64decode(audio_data)
+            self.active_streams[meeting_id]["audio_chunks"].append(audio_bytes)
+            self.active_streams[meeting_id]["is_speaking"] = True
+            print(f"📦 Added audio chunk: {len(audio_bytes)} bytes (total chunks: {len(self.active_streams[meeting_id]['audio_chunks'])})")
+        except Exception as e:
+            print(f"❌ Error decoding audio chunk: {e}")
     
     def stop_speaking(self, meeting_id: str) -> List[bytes]:
         """
         Mark speaker as stopped and return collected audio
         
         Returns:
-            List of audio chunks
+            List of audio chunks (bytes)
         """
         if meeting_id not in self.active_streams:
+            print(f"⚠️ No active stream for meeting {meeting_id}")
             return []
         
         self.active_streams[meeting_id]["is_speaking"] = False
         chunks = self.active_streams[meeting_id]["audio_chunks"].copy()
         
-        # Clear chunks for next turn
+        print(f"🛑 Stopped speaking - collected {len(chunks)} chunks")
+        
+        if chunks:
+            total_size = sum(len(chunk) for chunk in chunks)
+            print(f"📊 Total audio size: {total_size} bytes")
+        
         self.active_streams[meeting_id]["audio_chunks"] = []
         
         return chunks
@@ -61,6 +71,7 @@ class AudioStreamService:
         """Clear stream data for a meeting"""
         if meeting_id in self.active_streams:
             del self.active_streams[meeting_id]
+            print(f"🧹 Cleared stream for meeting {meeting_id}")
     
     async def stream_audio_response(self, audio_bytes: bytes, chunk_size: int = 4096):
         """
@@ -73,13 +84,13 @@ class AudioStreamService:
         Yields:
             Base64 encoded audio chunks
         """
+        total_chunks = (len(audio_bytes) + chunk_size - 1) // chunk_size
+        print(f"📤 Streaming {len(audio_bytes)} bytes in {total_chunks} chunks")
+        
         for i in range(0, len(audio_bytes), chunk_size):
             chunk = audio_bytes[i:i + chunk_size]
-            # Encode to base64 for WebSocket transmission
             yield base64.b64encode(chunk).decode('utf-8')
-            # Small delay to simulate streaming
             await asyncio.sleep(0.05)
 
 
-# Singleton instance
 audio_stream_service = AudioStreamService()

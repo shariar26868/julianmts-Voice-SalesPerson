@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎙️ AI Sales Training - Live Voice Conversation</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 900px;
+            width: 100%;
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 { font-size: 2.5rem; margin-bottom: 10px; }
+        .header p { font-size: 1.1rem; opacity: 0.9; }
+        .content { padding: 30px; }
+        .section { margin-bottom: 30px; }
+        .section-title {
+            font-size: 1.3rem;
+            color: #333;
+            margin-bottom: 15px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .input-group { margin-bottom: 20px; }
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        .btn-danger { background: #f44336; color: white; }
+        .btn-secondary { background: #9e9e9e; color: white; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
+        .status-box {
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 500;
+        }
+        .status-disconnected {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #f44336;
+        }
+        .status-connected {
+            background: #e8f5e9;
+            color: #2e7d32;
+            border-left: 4px solid #4caf50;
+        }
+        .status-recording {
+            background: #fff3e0;
+            color: #e65100;
+            border-left: 4px solid #ff9800;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .reps-container { display: flex; gap: 15px; flex-wrap: wrap; }
+        .rep-card {
+            background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+            padding: 15px;
+            border-radius: 10px;
+            flex: 1;
+            min-width: 200px;
+            border-left: 4px solid #ff9800;
+        }
+        .rep-card h3 { color: #e65100; margin-bottom: 8px; font-size: 1.1rem; }
+        .rep-card p { color: #666; margin: 4px 0; font-size: 0.9rem; }
+        .transcript-container {
+            background: #f5f5f5;
+            border-radius: 10px;
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .transcript-empty {
+            text-align: center;
+            color: #999;
+            padding: 40px;
+            font-style: italic;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 15px;
+            border-radius: 10px;
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .message-user {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border-left: 4px solid #2196f3;
+        }
+        .message-ai {
+            background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+            border-left: 4px solid #ff9800;
+        }
+        .message-system {
+            background: #f5f5f5;
+            border-left: 4px solid #9e9e9e;
+            font-style: italic;
+            color: #666;
+        }
+        .message-speaker {
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .message-text { line-height: 1.6; color: #333; }
+        .message-meta { margin-top: 8px; font-size: 0.85rem; color: #999; }
+        .recording-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background: #f44336;
+            border-radius: 50%;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        .mic-button {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: none;
+            font-size: 2rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        .mic-button:hover:not(:disabled) { transform: scale(1.1); }
+        .mic-button.inactive {
+            background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+        }
+        .mic-button.active {
+            background: linear-gradient(135deg, #f44336 0%, #da190b 100%);
+            animation: pulse-mic 1s infinite;
+        }
+        @keyframes pulse-mic {
+            0%, 100% { box-shadow: 0 4px 15px rgba(244, 67, 54, 0.4); }
+            50% { box-shadow: 0 4px 30px rgba(244, 67, 54, 0.8); }
+        }
+        .alert {
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .alert-info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #2196f3;
+        }
+        .alert-warning {
+            background: #fff3e0;
+            color: #e65100;
+            border-left: 4px solid #ff9800;
+        }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎙️ AI Sales Training</h1>
+            <p>Live Voice Conversation with AI Representatives</p>
+        </div>
+
+        <div class="content">
+            <div id="setupSection" class="section">
+                <h2 class="section-title"><span>🔌</span>Connection Setup</h2>
+                <div class="input-group">
+                    <label for="meetingIdInput">Meeting ID</label>
+                    <input type="text" id="meetingIdInput" placeholder="Enter meeting ID">
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="connectToMeeting()">🚀 Connect</button>
+                </div>
+            </div>
+
+            <div id="statusSection" class="hidden">
+                <div id="statusBox" class="status-box status-disconnected">
+                    <div class="status-indicator" style="background: #f44336;"></div>
+                    <span id="statusText">Disconnected</span>
+                </div>
+            </div>
+
+            <div id="repsSection" class="section hidden">
+                <h2 class="section-title"><span>👥</span>AI Representatives</h2>
+                <div id="repsContainer" class="reps-container"></div>
+            </div>
+
+            <div id="controlsSection" class="section hidden">
+                <h2 class="section-title"><span>🎤</span>Voice Conversation</h2>
+                <div class="controls">
+                    <button class="mic-button inactive" id="micButton" onclick="toggleRecording()" disabled>🎤</button>
+                </div>
+                <div style="text-align: center; color: #666; margin-top: 10px;">
+                    <p id="recordingStatus">Click microphone to start speaking</p>
+                </div>
+            </div>
+
+            <div id="transcriptSection" class="section hidden">
+                <h2 class="section-title"><span>📜</span>Conversation Transcript</h2>
+                <div id="transcript" class="transcript-container">
+                    <div class="transcript-empty">No messages yet. Start speaking!</div>
+                </div>
+            </div>
+
+            <div id="disconnectSection" class="section hidden" style="text-align: center;">
+                <button class="btn btn-danger" onclick="disconnect()">⏹️ End Conversation</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let mediaRecorder = null;
+        let isRecording = false;
+        let isConnected = false;
+        let currentMeetingId = null;
+        let audioQueue = [];
+        let isPlayingAudio = false;
+        let currentAudio = null;
+
+        function updateStatus(status, message) {
+            const statusBox = document.getElementById('statusBox');
+            const statusText = document.getElementById('statusText');
+            const indicator = statusBox.querySelector('.status-indicator');
+            statusBox.className = 'status-box';
+            if (status === 'connected') {
+                statusBox.classList.add('status-connected');
+                indicator.style.background = '#4caf50';
+            } else if (status === 'recording') {
+                statusBox.classList.add('status-recording');
+                indicator.style.background = '#ff9800';
+            } else {
+                statusBox.classList.add('status-disconnected');
+                indicator.style.background = '#f44336';
+            }
+            statusText.textContent = message;
+        }
+
+        function addMessage(speaker, text, type = 'user') {
+            const transcript = document.getElementById('transcript');
+            if (transcript.querySelector('.transcript-empty')) {
+                transcript.innerHTML = '';
+            }
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message message-${type}`;
+            const speakerIcon = type === 'user' ? '🧑‍💼' : (type === 'ai' ? '🤖' : 'ℹ️');
+            messageDiv.innerHTML = `
+                <div class="message-speaker">${speakerIcon} ${speaker}</div>
+                <div class="message-text">${text}</div>
+                <div class="message-meta">${new Date().toLocaleTimeString()}</div>
+            `;
+            transcript.appendChild(messageDiv);
+            transcript.scrollTop = transcript.scrollHeight;
+        }
+
+        function displayRepresentatives(reps) {
+            const container = document.getElementById('repsContainer');
+            container.innerHTML = '';
+            reps.forEach(rep => {
+                const card = document.createElement('div');
+                card.className = 'rep-card';
+                card.innerHTML = `
+                    <h3>${rep.name}</h3>
+                    <p><strong>Role:</strong> ${rep.role}</p>
+                    <p><strong>Personality:</strong> ${rep.personality.join(', ')}</p>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        async function playAudioChunk(base64Audio) {
+            if (!base64Audio || base64Audio === '') return;
+            audioQueue.push(base64Audio);
+            if (!isPlayingAudio) playNextAudio();
+        }
+
+        async function playNextAudio() {
+            if (audioQueue.length === 0) {
+                isPlayingAudio = false;
+                return;
+            }
+            isPlayingAudio = true;
+            const base64Audio = audioQueue.shift();
+            const formats = ['audio/mpeg', 'audio/mp3', 'audio/wav'];
+            let played = false;
+            for (const format of formats) {
+                if (played) break;
+                try {
+                    currentAudio = new Audio(`data:${format};base64,${base64Audio}`);
+                    currentAudio.onended = () => playNextAudio();
+                    currentAudio.onerror = () => {};
+                    await currentAudio.play();
+                    played = true;
+                } catch (e) {
+                    continue;
+                }
+            }
+            if (!played) playNextAudio();
+        }
+
+        function connectToMeeting() {
+            const meetingId = document.getElementById('meetingIdInput').value.trim();
+            if (!meetingId) {
+                alert('⚠️ Please enter a Meeting ID');
+                return;
+            }
+            currentMeetingId = meetingId;
+            document.getElementById('statusSection').classList.remove('hidden');
+            updateStatus('connecting', 'Connecting...');
+            ws = new WebSocket(`ws://localhost:8000/conversations/api/conversation/ws/live-conversation/${meetingId}`);
+            ws.onopen = () => console.log('✅ Connected');
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+            ws.onerror = () => {
+                updateStatus('disconnected', 'Connection error');
+                alert('❌ Failed to connect');
+            };
+            ws.onclose = () => {
+                updateStatus('disconnected', 'Disconnected');
+                isConnected = false;
+                document.getElementById('micButton').disabled = true;
+            };
+        }
+
+        function handleWebSocketMessage(data) {
+            console.log('📨', data.type);
+            switch (data.type) {
+                case 'connected':
+                    isConnected = true;
+                    updateStatus('connected', '✅ Connected');
+                    document.getElementById('setupSection').classList.add('hidden');
+                    document.getElementById('repsSection').classList.remove('hidden');
+                    document.getElementById('controlsSection').classList.remove('hidden');
+                    document.getElementById('transcriptSection').classList.remove('hidden');
+                    document.getElementById('disconnectSection').classList.remove('hidden');
+                    document.getElementById('micButton').disabled = false;
+                    if (data.representatives) displayRepresentatives(data.representatives);
+                    addMessage('System', data.message, 'system');
+                    break;
+                case 'transcription':
+                    addMessage('You', data.text, 'user');
+                    break;
+                case 'ai_thinking':
+                    if (data.speaker_name) {
+                        addMessage('System', `${data.speaker_name} is thinking...`, 'system');
+                    }
+                    break;
+                case 'ai_response_text':
+                    addMessage(data.speaker_name, data.text, 'ai');
+                    break;
+                case 'ai_audio_chunk':
+                    if (!data.is_final && data.audio_data) {
+                        playAudioChunk(data.audio_data);
+                    }
+                    break;
+                case 'error':
+                    addMessage('System', `Error: ${data.message}`, 'system');
+                    break;
+            }
+        }
+
+        async function toggleRecording() {
+            if (!isRecording) {
+                await startRecording();
+            } else {
+                await stopRecording();
+            }
+        }
+
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: { echoCancellation: true, noiseSuppression: true } 
+                });
+
+                mediaRecorder = new MediaRecorder(stream);
+                let audioChunks = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                        
+                        // Convert to base64 and send immediately
+                        const reader = new FileReader();
+                        reader.readAsDataURL(event.data);
+                        reader.onloadend = () => {
+                            const base64Audio = reader.result.split(',')[1];
+                            if (ws && ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({
+                                    type: 'audio_chunk',
+                                    data: base64Audio,
+                                    is_speaking: true
+                                }));
+                                console.log('📤 Sent chunk:', base64Audio.length, 'chars');
+                            }
+                        };
+                    }
+                };
+
+                mediaRecorder.onstop = () => {
+                    // Send final signal
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: 'audio_chunk',
+                            data: '',
+                            is_speaking: false
+                        }));
+                        console.log('🛑 Sent stop signal');
+                    }
+                    stream.getTracks().forEach(track => track.stop());
+                };
+
+                // Request data every 100ms while recording
+                mediaRecorder.start(100);
+                isRecording = true;
+
+                const micButton = document.getElementById('micButton');
+                micButton.classList.remove('inactive');
+                micButton.classList.add('active');
+                updateStatus('recording', '🎙️ Recording...');
+                document.getElementById('recordingStatus').innerHTML = '<span class="recording-indicator"></span> Recording...';
+
+                console.log('🎤 Recording started');
+            } catch (error) {
+                console.error('❌ Microphone error:', error);
+                alert('❌ Could not access microphone');
+            }
+        }
+
+        async function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+
+                const micButton = document.getElementById('micButton');
+                micButton.classList.remove('active');
+                micButton.classList.add('inactive');
+                updateStatus('connected', 'Processing...');
+                document.getElementById('recordingStatus').textContent = 'Processing...';
+
+                console.log('⏹️ Recording stopped');
+
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('connected', '✅ Ready');
+                        document.getElementById('recordingStatus').textContent = 'Click to speak';
+                    }
+                }, 2000);
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.send(JSON.stringify({ type: 'disconnect' }));
+                ws.close();
+            }
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+            }
+            audioQueue = [];
+            isPlayingAudio = false;
+            if (currentAudio) currentAudio.pause();
+            
+            document.getElementById('setupSection').classList.remove('hidden');
+            document.getElementById('statusSection').classList.add('hidden');
+            document.getElementById('repsSection').classList.add('hidden');
+            document.getElementById('controlsSection').classList.add('hidden');
+            document.getElementById('transcriptSection').classList.add('hidden');
+            document.getElementById('disconnectSection').classList.add('hidden');
+            document.getElementById('transcript').innerHTML = '<div class="transcript-empty">No messages yet.</div>';
+            
+            isConnected = false;
+            currentMeetingId = null;
+        }
+
+        setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 30000);
+    </script>
+</body>
+</html> 
+
+
