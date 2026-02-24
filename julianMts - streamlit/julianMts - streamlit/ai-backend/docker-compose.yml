@@ -70,9 +70,7 @@
 
 
 version: '3.8'
- 
 services:
-  # FastAPI Application
   api:
     build: .
     container_name: sales_training_api
@@ -97,7 +95,6 @@ services:
       - sales_training_network
     restart: unless-stopped
  
-  # MongoDB
   mongodb:
     image: mongo:7.0
     container_name: sales_training_mongodb
@@ -111,12 +108,11 @@ services:
       - sales_training_network
     restart: unless-stopped
  
-  # Mongo Express (Web UI for MongoDB - optional)
   mongo-express:
     image: mongo-express:latest
     container_name: sales_training_mongo_express
     ports:
-      - "8125:8081"
+      - "8013:8081"
     environment:
       - ME_CONFIG_MONGODB_SERVER=mongodb
       - ME_CONFIG_MONGODB_PORT=27017
