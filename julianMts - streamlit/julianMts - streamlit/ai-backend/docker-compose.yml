@@ -45,7 +45,7 @@ services:
     image: mongo-express:latest
     container_name: sales_training_mongo_express
     ports:
-      - "8012:8000"
+      - "8124:8081"
     environment:
       - ME_CONFIG_MONGODB_SERVER=mongodb
       - ME_CONFIG_MONGODB_PORT=27017
