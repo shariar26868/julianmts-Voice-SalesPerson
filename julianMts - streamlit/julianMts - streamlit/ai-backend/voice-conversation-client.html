@@ -1,0 +1,1566 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎙️ AI Sales Training - Live Voice Conversation</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 900px;
+            width: 100%;
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 { font-size: 2.5rem; margin-bottom: 10px; }
+        .header p { font-size: 1.1rem; opacity: 0.9; }
+        .content { padding: 30px; }
+        .section { margin-bottom: 30px; }
+        .section-title {
+            font-size: 1.3rem;
+            color: #333;
+            margin-bottom: 15px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .input-group { margin-bottom: 20px; }
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        .btn-danger { background: #f44336; color: white; }
+        .btn-secondary { background: #9e9e9e; color: white; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
+        .status-box {
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 500;
+        }
+        .status-disconnected {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #f44336;
+        }
+        .status-connected {
+            background: #e8f5e9;
+            color: #2e7d32;
+            border-left: 4px solid #4caf50;
+        }
+        .status-recording {
+            background: #fff3e0;
+            color: #e65100;
+            border-left: 4px solid #ff9800;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .reps-container { display: flex; gap: 15px; flex-wrap: wrap; }
+        .rep-card {
+            background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+            padding: 15px;
+            border-radius: 10px;
+            flex: 1;
+            min-width: 200px;
+            border-left: 4px solid #ff9800;
+        }
+        .rep-card h3 { color: #e65100; margin-bottom: 8px; font-size: 1.1rem; }
+        .rep-card p { color: #666; margin: 4px 0; font-size: 0.9rem; }
+        .transcript-container {
+            background: #f5f5f5;
+            border-radius: 10px;
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .transcript-empty {
+            text-align: center;
+            color: #999;
+            padding: 40px;
+            font-style: italic;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 15px;
+            border-radius: 10px;
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .message-user {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border-left: 4px solid #2196f3;
+        }
+        .message-ai {
+            background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+            border-left: 4px solid #ff9800;
+        }
+        .message-system {
+            background: #f5f5f5;
+            border-left: 4px solid #9e9e9e;
+            font-style: italic;
+            color: #666;
+        }
+        .message-speaker {
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .message-text { line-height: 1.6; color: #333; }
+        .message-meta { margin-top: 8px; font-size: 0.85rem; color: #999; }
+        .recording-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background: #f44336;
+            border-radius: 50%;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        .mic-button {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: none;
+            font-size: 2rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        .mic-button:hover:not(:disabled) { transform: scale(1.1); }
+        .mic-button.inactive {
+            background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+        }
+        .mic-button.active {
+            background: linear-gradient(135deg, #f44336 0%, #da190b 100%);
+            animation: pulse-mic 1s infinite;
+        }
+        @keyframes pulse-mic {
+            0%, 100% { box-shadow: 0 4px 15px rgba(244, 67, 54, 0.4); }
+            50% { box-shadow: 0 4px 30px rgba(244, 67, 54, 0.8); }
+        }
+        .alert {
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .alert-info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #2196f3;
+        }
+        .alert-warning {
+            background: #fff3e0;
+            color: #e65100;
+            border-left: 4px solid #ff9800;
+        }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎙️ AI Sales Training</h1>
+            <p>Live Voice Conversation with AI Representatives</p>
+        </div>
+
+        <div class="content">
+            <div id="setupSection" class="section">
+                <h2 class="section-title"><span>🔌</span>Connection Setup</h2>
+                <div class="input-group">
+                    <label for="meetingIdInput">Meeting ID</label>
+                    <input type="text" id="meetingIdInput" placeholder="Enter meeting ID">
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="connectToMeeting()">🚀 Connect</button>
+                </div>
+            </div>
+
+            <div id="statusSection" class="hidden">
+                <div id="statusBox" class="status-box status-disconnected">
+                    <div class="status-indicator" style="background: #f44336;"></div>
+                    <span id="statusText">Disconnected</span>
+                </div>
+            </div>
+
+            <div id="repsSection" class="section hidden">
+                <h2 class="section-title"><span>👥</span>AI Representatives</h2>
+                <div id="repsContainer" class="reps-container"></div>
+            </div>
+
+            <div id="controlsSection" class="section hidden">
+                <h2 class="section-title"><span>🎤</span>Voice Conversation</h2>
+                <div class="controls">
+                    <button class="mic-button inactive" id="micButton" onclick="toggleRecording()" disabled>🎤</button>
+                </div>
+                <div style="text-align: center; color: #666; margin-top: 10px;">
+                    <p id="recordingStatus">Click microphone to start speaking</p>
+                </div>
+            </div>
+
+            <div id="transcriptSection" class="section hidden">
+                <h2 class="section-title"><span>📜</span>Conversation Transcript</h2>
+                <div id="transcript" class="transcript-container">
+                    <div class="transcript-empty">No messages yet. Start speaking!</div>
+                </div>
+            </div>
+
+            <div id="disconnectSection" class="section hidden" style="text-align: center;">
+                <button class="btn btn-danger" onclick="disconnect()">⏹️ End Conversation</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let mediaRecorder = null;
+        let isRecording = false;
+        let isConnected = false;
+        let currentMeetingId = null;
+        let audioQueue = [];
+        let isPlayingAudio = false;
+        let currentAudio = null;
+
+        function updateStatus(status, message) {
+            const statusBox = document.getElementById('statusBox');
+            const statusText = document.getElementById('statusText');
+            const indicator = statusBox.querySelector('.status-indicator');
+            statusBox.className = 'status-box';
+            if (status === 'connected') {
+                statusBox.classList.add('status-connected');
+                indicator.style.background = '#4caf50';
+            } else if (status === 'recording') {
+                statusBox.classList.add('status-recording');
+                indicator.style.background = '#ff9800';
+            } else {
+                statusBox.classList.add('status-disconnected');
+                indicator.style.background = '#f44336';
+            }
+            statusText.textContent = message;
+        }
+
+        function addMessage(speaker, text, type = 'user') {
+            const transcript = document.getElementById('transcript');
+            if (transcript.querySelector('.transcript-empty')) {
+                transcript.innerHTML = '';
+            }
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message message-${type}`;
+            const speakerIcon = type === 'user' ? '🧑‍💼' : (type === 'ai' ? '🤖' : 'ℹ️');
+            messageDiv.innerHTML = `
+                <div class="message-speaker">${speakerIcon} ${speaker}</div>
+                <div class="message-text">${text}</div>
+                <div class="message-meta">${new Date().toLocaleTimeString()}</div>
+            `;
+            transcript.appendChild(messageDiv);
+            transcript.scrollTop = transcript.scrollHeight;
+        }
+
+        function displayRepresentatives(reps) {
+            const container = document.getElementById('repsContainer');
+            container.innerHTML = '';
+            reps.forEach(rep => {
+                const card = document.createElement('div');
+                card.className = 'rep-card';
+                card.innerHTML = `
+                    <h3>${rep.name}</h3>
+                    <p><strong>Role:</strong> ${rep.role}</p>
+                    <p><strong>Personality:</strong> ${rep.personality.join(', ')}</p>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        async function playAudioChunk(base64Audio) {
+            if (!base64Audio || base64Audio === '') return;
+            audioQueue.push(base64Audio);
+            if (!isPlayingAudio) playNextAudio();
+        }
+
+        async function playNextAudio() {
+            if (audioQueue.length === 0) {
+                isPlayingAudio = false;
+                return;
+            }
+            isPlayingAudio = true;
+            const base64Audio = audioQueue.shift();
+            const formats = ['audio/mpeg', 'audio/mp3', 'audio/wav'];
+            let played = false;
+            for (const format of formats) {
+                if (played) break;
+                try {
+                    currentAudio = new Audio(`data:${format};base64,${base64Audio}`);
+                    currentAudio.onended = () => playNextAudio();
+                    currentAudio.onerror = () => {};
+                    await currentAudio.play();
+                    played = true;
+                } catch (e) {
+                    continue;
+                }
+            }
+            if (!played) playNextAudio();
+        }
+
+        function connectToMeeting() {
+            const meetingId = document.getElementById('meetingIdInput').value.trim();
+            if (!meetingId) {
+                alert('⚠️ Please enter a Meeting ID');
+                return;
+            }
+            currentMeetingId = meetingId;
+            document.getElementById('statusSection').classList.remove('hidden');
+            updateStatus('connecting', 'Connecting...');
+            ws = new WebSocket(`ws://localhost:8000/conversations/api/conversation/ws/live-conversation/${meetingId}`);
+            ws.onopen = () => console.log('✅ Connected');
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+            ws.onerror = () => {
+                updateStatus('disconnected', 'Connection error');
+                alert('❌ Failed to connect');
+            };
+            ws.onclose = () => {
+                updateStatus('disconnected', 'Disconnected');
+                isConnected = false;
+                document.getElementById('micButton').disabled = true;
+            };
+        }
+
+        function handleWebSocketMessage(data) {
+            console.log('📨', data.type);
+            switch (data.type) {
+                case 'connected':
+                    isConnected = true;
+                    updateStatus('connected', '✅ Connected');
+                    document.getElementById('setupSection').classList.add('hidden');
+                    document.getElementById('repsSection').classList.remove('hidden');
+                    document.getElementById('controlsSection').classList.remove('hidden');
+                    document.getElementById('transcriptSection').classList.remove('hidden');
+                    document.getElementById('disconnectSection').classList.remove('hidden');
+                    document.getElementById('micButton').disabled = false;
+                    if (data.representatives) displayRepresentatives(data.representatives);
+                    addMessage('System', data.message, 'system');
+                    break;
+                case 'transcription':
+                    addMessage('You', data.text, 'user');
+                    break;
+                case 'ai_thinking':
+                    if (data.speaker_name) {
+                        addMessage('System', `${data.speaker_name} is thinking...`, 'system');
+                    }
+                    break;
+                case 'ai_response_text':
+                    addMessage(data.speaker_name, data.text, 'ai');
+                    break;
+                case 'ai_audio_chunk':
+                    if (!data.is_final && data.audio_data) {
+                        playAudioChunk(data.audio_data);
+                    }
+                    break;
+                case 'error':
+                    addMessage('System', `Error: ${data.message}`, 'system');
+                    break;
+            }
+        }
+
+        async function toggleRecording() {
+            if (!isRecording) {
+                await startRecording();
+            } else {
+                await stopRecording();
+            }
+        }
+
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: { echoCancellation: true, noiseSuppression: true } 
+                });
+
+                mediaRecorder = new MediaRecorder(stream);
+                let audioChunks = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                        
+                        // Convert to base64 and send immediately
+                        const reader = new FileReader();
+                        reader.readAsDataURL(event.data);
+                        reader.onloadend = () => {
+                            const base64Audio = reader.result.split(',')[1];
+                            if (ws && ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({
+                                    type: 'audio_chunk',
+                                    data: base64Audio,
+                                    is_speaking: true
+                                }));
+                                console.log('📤 Sent chunk:', base64Audio.length, 'chars');
+                            }
+                        };
+                    }
+                };
+
+                mediaRecorder.onstop = () => {
+                    // Send final signal
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: 'audio_chunk',
+                            data: '',
+                            is_speaking: false
+                        }));
+                        console.log('🛑 Sent stop signal');
+                    }
+                    stream.getTracks().forEach(track => track.stop());
+                };
+
+                // Request data every 100ms while recording
+                mediaRecorder.start(100);
+                isRecording = true;
+
+                const micButton = document.getElementById('micButton');
+                micButton.classList.remove('inactive');
+                micButton.classList.add('active');
+                updateStatus('recording', '🎙️ Recording...');
+                document.getElementById('recordingStatus').innerHTML = '<span class="recording-indicator"></span> Recording...';
+
+                console.log('🎤 Recording started');
+            } catch (error) {
+                console.error('❌ Microphone error:', error);
+                alert('❌ Could not access microphone');
+            }
+        }
+
+        async function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+
+                const micButton = document.getElementById('micButton');
+                micButton.classList.remove('active');
+                micButton.classList.add('inactive');
+                updateStatus('connected', 'Processing...');
+                document.getElementById('recordingStatus').textContent = 'Processing...';
+
+                console.log('⏹️ Recording stopped');
+
+                setTimeout(() => {
+                    if (isConnected) {
+                        updateStatus('connected', '✅ Ready');
+                        document.getElementById('recordingStatus').textContent = 'Click to speak';
+                    }
+                }, 2000);
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.send(JSON.stringify({ type: 'disconnect' }));
+                ws.close();
+            }
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+            }
+            audioQueue = [];
+            isPlayingAudio = false;
+            if (currentAudio) currentAudio.pause();
+            
+            document.getElementById('setupSection').classList.remove('hidden');
+            document.getElementById('statusSection').classList.add('hidden');
+            document.getElementById('repsSection').classList.add('hidden');
+            document.getElementById('controlsSection').classList.add('hidden');
+            document.getElementById('transcriptSection').classList.add('hidden');
+            document.getElementById('disconnectSection').classList.add('hidden');
+            document.getElementById('transcript').innerHTML = '<div class="transcript-empty">No messages yet.</div>';
+            
+            isConnected = false;
+            currentMeetingId = null;
+        }
+
+        setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 30000);
+    </script>
+</body>
+</html> 
+
+ -->
+
+
+
+
+
+ <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎙️ AI Sales Training - Auto Voice Detection</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 900px;
+            width: 100%;
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 { font-size: 2.5rem; margin-bottom: 10px; }
+        .header p { font-size: 1.1rem; opacity: 0.9; }
+        .content { padding: 30px; }
+        .section { margin-bottom: 30px; }
+        .section-title {
+            font-size: 1.3rem;
+            color: #333;
+            margin-bottom: 15px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .input-group { margin-bottom: 20px; }
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        .btn-danger { background: #f44336; color: white; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .status-box {
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 500;
+        }
+        .status-disconnected {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #f44336;
+        }
+        .status-connected {
+            background: #e8f5e9;
+            color: #2e7d32;
+            border-left: 4px solid #4caf50;
+        }
+        .status-listening {
+            background: #e3f2fd;
+            color: #1565c0;
+            border-left: 4px solid #2196f3;
+        }
+        .status-speaking {
+            background: #fff3e0;
+            color: #e65100;
+            border-left: 4px solid #ff9800;
+        }
+        .status-ai-speaking {
+            background: #f3e5f5;
+            color: #6a1b9a;
+            border-left: 4px solid #9c27b0;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .reps-container { display: flex; gap: 15px; flex-wrap: wrap; }
+        .rep-card {
+            background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+            padding: 15px;
+            border-radius: 10px;
+            flex: 1;
+            min-width: 200px;
+            border-left: 4px solid #ff9800;
+        }
+        .rep-card h3 { color: #e65100; margin-bottom: 8px; font-size: 1.1rem; }
+        .rep-card p { color: #666; margin: 4px 0; font-size: 0.9rem; }
+        .transcript-container {
+            background: #f5f5f5;
+            border-radius: 10px;
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .transcript-empty {
+            text-align: center;
+            color: #999;
+            padding: 40px;
+            font-style: italic;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 15px;
+            border-radius: 10px;
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .message-user {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border-left: 4px solid #2196f3;
+        }
+        .message-ai {
+            background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+            border-left: 4px solid #ff9800;
+        }
+        .message-system {
+            background: #f5f5f5;
+            border-left: 4px solid #9e9e9e;
+            font-style: italic;
+            color: #666;
+        }
+        .message-speaker {
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .message-text { line-height: 1.6; color: #333; }
+        .message-meta { margin-top: 8px; font-size: 0.85rem; color: #999; }
+        
+        /* Voice Activity Visualization */
+        .vad-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .voice-visualizer {
+            width: 100%;
+            max-width: 400px;
+            height: 80px;
+            background: #f5f5f5;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            padding: 10px;
+            overflow: hidden;
+        }
+        
+        .voice-bar {
+            width: 8px;
+            background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+            border-radius: 4px;
+            transition: height 0.1s ease;
+        }
+        
+        .mic-status {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s;
+        }
+        
+        .mic-status.listening {
+            background: linear-gradient(135deg, #e3f2fd 0%, #90caf9 100%);
+            animation: breathe 2s infinite;
+        }
+        
+        .mic-status.speaking {
+            background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+            animation: pulse-speak 0.5s infinite;
+        }
+        
+        .mic-status.ai-speaking {
+            background: linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%);
+            animation: pulse-ai 1s infinite;
+        }
+        
+        @keyframes breathe {
+            0%, 100% { transform: scale(1); box-shadow: 0 4px 20px rgba(33, 150, 243, 0.3); }
+            50% { transform: scale(1.05); box-shadow: 0 4px 30px rgba(33, 150, 243, 0.5); }
+        }
+        
+        @keyframes pulse-speak {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        @keyframes pulse-ai {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+        }
+        
+        .vad-info {
+            text-align: center;
+            color: #666;
+            font-size: 1.1rem;
+            font-weight: 500;
+        }
+        
+        .vad-settings {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+        
+        .vad-settings label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+        
+        .vad-settings input[type="range"] {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎙️ AI Sales Training</h1>
+            <p>Automatic Voice Detection - Hands-Free Conversation</p>
+        </div>
+
+        <div class="content">
+            <!-- Setup Section -->
+            <div id="setupSection" class="section">
+                <h2 class="section-title"><span>🔌</span>Connection Setup</h2>
+                <div class="input-group">
+                    <label for="meetingIdInput">Meeting ID</label>
+                    <input type="text" id="meetingIdInput" placeholder="Enter meeting ID">
+                </div>
+                <button class="btn btn-primary" onclick="connectToMeeting()">🚀 Start Auto-Voice Conversation</button>
+            </div>
+
+            <!-- Status Section -->
+            <div id="statusSection" class="hidden">
+                <div id="statusBox" class="status-box status-disconnected">
+                    <div class="status-indicator" style="background: #f44336;"></div>
+                    <span id="statusText">Disconnected</span>
+                </div>
+            </div>
+
+            <!-- Representatives Section -->
+            <div id="repsSection" class="section hidden">
+                <h2 class="section-title"><span>👥</span>AI Representatives</h2>
+                <div id="repsContainer" class="reps-container"></div>
+            </div>
+
+            <!-- Voice Activity Detection Section -->
+            <div id="vadSection" class="section hidden">
+                <h2 class="section-title"><span>🎤</span>Voice Activity Detection</h2>
+                
+                <div class="vad-container">
+                    <div class="mic-status listening" id="micStatus">🎤</div>
+                    <div class="vad-info" id="vadInfo">Listening for your voice...</div>
+                    
+                    <div class="voice-visualizer" id="voiceVisualizer">
+                        <!-- Bars will be generated by JavaScript -->
+                    </div>
+                </div>
+                
+                <!-- Optional: VAD Settings -->
+                <div class="vad-settings">
+                    <label>Voice Sensitivity: <span id="sensitivityValue">50</span></label>
+                    <input type="range" id="sensitivitySlider" min="0" max="100" value="50" 
+                           oninput="updateSensitivity(this.value)">
+                    
+                    <label>Silence Duration (ms): <span id="silenceValue">1500</span></label>
+                    <input type="range" id="silenceSlider" min="500" max="3000" value="1500" step="100"
+                           oninput="updateSilenceDuration(this.value)">
+                </div>
+            </div>
+
+            <!-- Transcript Section -->
+            <div id="transcriptSection" class="section hidden">
+                <h2 class="section-title"><span>📜</span>Conversation Transcript</h2>
+                <div id="transcript" class="transcript-container">
+                    <div class="transcript-empty">Conversation will appear here...</div>
+                </div>
+            </div>
+
+            <!-- Disconnect Section -->
+            <div id="disconnectSection" class="section hidden" style="text-align: center;">
+                <button class="btn btn-danger" onclick="disconnect()">⏹️ End Conversation</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket & Recording State
+        let ws = null;
+        let mediaRecorder = null;
+        let audioStream = null;
+        let isConnected = false;
+        let currentMeetingId = null;
+        
+        // Audio Playback Queue
+        let audioQueue = [];
+        let isPlayingAudio = false;
+        let currentAudio = null;
+        
+        // Voice Activity Detection (VAD)
+        let audioContext = null;
+        let analyser = null;
+        let microphone = null;
+        let javascriptNode = null;
+        let isUserSpeaking = false;
+        let silenceTimer = null;
+        let audioChunksBuffer = [];
+        
+        // VAD Configuration
+        let VAD_CONFIG = {
+            threshold: -50,           // dB threshold for voice detection
+            silenceDuration: 1500,    // ms of silence before stopping
+            minSpeechDuration: 300,   // ms minimum speech to consider valid
+            smoothingFactor: 0.8      // Smoothing for audio levels
+        };
+        
+        let speechStartTime = null;
+        let lastSoundTime = Date.now();
+        let smoothedVolume = 0;
+
+        // =====================================================
+        // VOICE ACTIVITY DETECTION FUNCTIONS
+        // =====================================================
+        
+        async function initializeVAD() {
+            try {
+                console.log('🎤 Initializing Voice Activity Detection...');
+                
+                // Get microphone stream
+                audioStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+                
+                // Create audio context
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                microphone = audioContext.createMediaStreamSource(audioStream);
+                javascriptNode = audioContext.createScriptProcessor(2048, 1, 1);
+                
+                analyser.smoothingTimeConstant = VAD_CONFIG.smoothingFactor;
+                analyser.fftSize = 2048;
+                
+                // Connect audio pipeline
+                microphone.connect(analyser);
+                analyser.connect(javascriptNode);
+                javascriptNode.connect(audioContext.destination);
+                
+                // Process audio in real-time
+                javascriptNode.onaudioprocess = processAudio;
+                
+                // Initialize MediaRecorder for actual recording
+                mediaRecorder = new MediaRecorder(audioStream, {
+                    mimeType: 'audio/webm;codecs=opus'
+                });
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunksBuffer.push(event.data);
+                    }
+                };
+                
+                mediaRecorder.onstop = handleRecordingStop;
+                
+                // Create visualizer bars
+                createVisualizerBars();
+                
+                console.log('✅ VAD initialized successfully');
+                updateVADStatus('listening', 'Listening for your voice...');
+                
+            } catch (error) {
+                console.error('❌ VAD initialization failed:', error);
+                alert('❌ Could not access microphone. Please allow microphone access.');
+            }
+        }
+        
+        function processAudio() {
+            if (!analyser) return;
+            
+            // Get audio data
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            analyser.getByteFrequencyData(dataArray);
+            
+            // Calculate average volume
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                sum += dataArray[i];
+            }
+            const average = sum / bufferLength;
+            
+            // Smooth the volume
+            smoothedVolume = (smoothedVolume * VAD_CONFIG.smoothingFactor) + 
+                           (average * (1 - VAD_CONFIG.smoothingFactor));
+            
+            // Convert to dB (approximate)
+            const dB = 20 * Math.log10(smoothedVolume / 255);
+            
+            // Update visualizer
+            updateVisualizer(dataArray);
+            
+            // Voice Activity Detection Logic
+            const now = Date.now();
+            
+            if (dB > VAD_CONFIG.threshold) {
+                // Voice detected
+                lastSoundTime = now;
+                
+                if (!isUserSpeaking) {
+                    // Start of speech
+                    speechStartTime = now;
+                    startSpeaking();
+                }
+                
+                // Clear silence timer
+                if (silenceTimer) {
+                    clearTimeout(silenceTimer);
+                    silenceTimer = null;
+                }
+                
+            } else {
+                // Silence detected
+                if (isUserSpeaking && !silenceTimer) {
+                    // Start silence timer
+                    silenceTimer = setTimeout(() => {
+                        const speechDuration = Date.now() - speechStartTime;
+                        
+                        // Only stop if speech was long enough
+                        if (speechDuration >= VAD_CONFIG.minSpeechDuration) {
+                            stopSpeaking();
+                        } else {
+                            console.log('⚠️ Speech too short, ignoring');
+                            audioChunksBuffer = [];
+                            isUserSpeaking = false;
+                            updateVADStatus('listening', 'Listening for your voice...');
+                        }
+                        
+                        silenceTimer = null;
+                    }, VAD_CONFIG.silenceDuration);
+                }
+            }
+        }
+        
+        function startSpeaking() {
+            if (isUserSpeaking) return;
+            
+            console.log('🗣️ User started speaking');
+            isUserSpeaking = true;
+            audioChunksBuffer = [];
+            
+            // Start recording
+            if (mediaRecorder && mediaRecorder.state === 'inactive') {
+                mediaRecorder.start(100); // Capture data every 100ms
+            }
+            
+            updateVADStatus('speaking', 'You are speaking...');
+        }
+        
+        function stopSpeaking() {
+            if (!isUserSpeaking) return;
+            
+            console.log('🛑 User stopped speaking');
+            isUserSpeaking = false;
+            
+            // Stop recording
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+            }
+            
+            updateVADStatus('processing', 'Processing your speech...');
+        }
+        
+        function handleRecordingStop() {
+            console.log(`📦 Recording stopped - ${audioChunksBuffer.length} chunks collected`);
+            
+            if (audioChunksBuffer.length === 0) {
+                console.log('⚠️ No audio chunks recorded');
+                updateVADStatus('listening', 'Listening for your voice...');
+                return;
+            }
+            
+            // Send all chunks to backend
+            sendAudioChunks(audioChunksBuffer);
+            
+            // Clear buffer
+            audioChunksBuffer = [];
+        }
+        
+        function sendAudioChunks(chunks) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                console.error('❌ WebSocket not connected');
+                return;
+            }
+            
+            console.log(`📤 Sending ${chunks.length} audio chunks to backend`);
+            
+            // Send each chunk
+            chunks.forEach((chunk, index) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(chunk);
+                reader.onloadend = () => {
+                    const base64Audio = reader.result.split(',')[1];
+                    
+                    ws.send(JSON.stringify({
+                        type: 'audio_chunk',
+                        data: base64Audio,
+                        is_speaking: true,
+                        chunk_index: index,
+                        total_chunks: chunks.length
+                    }));
+                };
+            });
+            
+            // Send stop signal
+            setTimeout(() => {
+                ws.send(JSON.stringify({
+                    type: 'audio_chunk',
+                    data: '',
+                    is_speaking: false
+                }));
+                console.log('✅ Sent stop signal to backend');
+            }, 100);
+        }
+        
+        function updateVADStatus(status, message) {
+            const micStatus = document.getElementById('micStatus');
+            const vadInfo = document.getElementById('vadInfo');
+            const statusBox = document.getElementById('statusBox');
+            const indicator = statusBox.querySelector('.status-indicator');
+            
+            vadInfo.textContent = message;
+            
+            // Update mic status icon
+            micStatus.className = 'mic-status ' + status;
+            
+            switch (status) {
+                case 'listening':
+                    micStatus.textContent = '🎤';
+                    statusBox.className = 'status-box status-listening';
+                    indicator.style.background = '#2196f3';
+                    break;
+                case 'speaking':
+                    micStatus.textContent = '🗣️';
+                    statusBox.className = 'status-box status-speaking';
+                    indicator.style.background = '#ff9800';
+                    break;
+                case 'ai-speaking':
+                    micStatus.textContent = '🤖';
+                    statusBox.className = 'status-box status-ai-speaking';
+                    indicator.style.background = '#9c27b0';
+                    break;
+                case 'processing':
+                    micStatus.textContent = '⏳';
+                    statusBox.className = 'status-box status-listening';
+                    indicator.style.background = '#2196f3';
+                    break;
+            }
+            
+            document.getElementById('statusText').textContent = message;
+        }
+        
+        function createVisualizerBars() {
+            const visualizer = document.getElementById('voiceVisualizer');
+            visualizer.innerHTML = '';
+            
+            for (let i = 0; i < 32; i++) {
+                const bar = document.createElement('div');
+                bar.className = 'voice-bar';
+                bar.style.height = '10px';
+                visualizer.appendChild(bar);
+            }
+        }
+        
+        function updateVisualizer(dataArray) {
+            const visualizer = document.getElementById('voiceVisualizer');
+            const bars = visualizer.querySelectorAll('.voice-bar');
+            
+            // Sample data at regular intervals
+            const step = Math.floor(dataArray.length / bars.length);
+            
+            bars.forEach((bar, i) => {
+                const value = dataArray[i * step] || 0;
+                const height = Math.max(10, (value / 255) * 60);
+                bar.style.height = height + 'px';
+            });
+        }
+        
+        function updateSensitivity(value) {
+            document.getElementById('sensitivityValue').textContent = value;
+            // Map 0-100 to -70 to -30 dB
+            VAD_CONFIG.threshold = -70 + (value / 100) * 40;
+            console.log(`🔊 Sensitivity: ${value} (threshold: ${VAD_CONFIG.threshold.toFixed(1)} dB)`);
+        }
+        
+        function updateSilenceDuration(value) {
+            document.getElementById('silenceValue').textContent = value;
+            VAD_CONFIG.silenceDuration = parseInt(value);
+            console.log(`⏱️ Silence duration: ${value} ms`);
+        }
+
+        // =====================================================
+        // WEBSOCKET & CONNECTION FUNCTIONS
+        // =====================================================
+        
+        function updateStatus(status, message) {
+            const statusBox = document.getElementById('statusBox');
+            const statusText = document.getElementById('statusText');
+            const indicator = statusBox.querySelector('.status-indicator');
+            
+            statusBox.className = 'status-box';
+            
+            if (status === 'connected') {
+                statusBox.classList.add('status-connected');
+                indicator.style.background = '#4caf50';
+            } else {
+                statusBox.classList.add('status-disconnected');
+                indicator.style.background = '#f44336';
+            }
+            
+            statusText.textContent = message;
+        }
+
+        function connectToMeeting() {
+            const meetingId = document.getElementById('meetingIdInput').value.trim();
+            
+            if (!meetingId) {
+                alert('⚠️ Please enter a Meeting ID');
+                return;
+            }
+            
+            currentMeetingId = meetingId;
+            
+            document.getElementById('statusSection').classList.remove('hidden');
+            updateStatus('connecting', 'Connecting...');
+            
+            // Connect WebSocket
+            ws = new WebSocket(`ws://localhost:8000/conversations/api/conversation/ws/live-conversation/${meetingId}`);
+            
+            ws.onopen = () => {
+                console.log('✅ WebSocket connected');
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+            
+            ws.onerror = () => {
+                updateStatus('disconnected', 'Connection error');
+                alert('❌ Failed to connect to meeting');
+            };
+            
+            ws.onclose = () => {
+                updateStatus('disconnected', 'Disconnected');
+                isConnected = false;
+                stopVAD();
+            };
+        }
+        
+        function handleWebSocketMessage(data) {
+            console.log('📨 Received:', data.type);
+            
+            switch (data.type) {
+                case 'connected':
+                    isConnected = true;
+                    updateStatus('connected', '✅ Connected');
+                    
+                    // Show all sections
+                    document.getElementById('setupSection').classList.add('hidden');
+                    document.getElementById('repsSection').classList.remove('hidden');
+                    document.getElementById('vadSection').classList.remove('hidden');
+                    document.getElementById('transcriptSection').classList.remove('hidden');
+                    document.getElementById('disconnectSection').classList.remove('hidden');
+                    
+                    // Display representatives
+                    if (data.representatives) {
+                        displayRepresentatives(data.representatives);
+                    }
+                    
+                    addMessage('System', data.message, 'system');
+                    
+                    // Initialize VAD
+                    initializeVAD();
+                    break;
+                    
+                case 'transcription':
+                    addMessage('You', data.text, 'user');
+                    updateVADStatus('listening', 'Listening for your voice...');
+                    break;
+                    
+                case 'ai_thinking':
+                    if (data.speaker_name) {
+                        addMessage('System', `${data.speaker_name} is thinking...`, 'system');
+                        updateVADStatus('ai-speaking', `${data.speaker_name} is preparing response...`);
+                    }
+                    break;
+                    
+                case 'ai_response_text':
+                    addMessage(data.speaker_name, data.text, 'ai');
+                    break;
+                    
+                case 'ai_audio_chunk':
+                    if (!data.is_final && data.audio_data) {
+                        playAudioChunk(data.audio_data);
+                        updateVADStatus('ai-speaking', `AI is speaking...`);
+                    } else if (data.is_final) {
+                        // AI finished speaking, resume listening
+                        setTimeout(() => {
+                            if (!isUserSpeaking) {
+                                updateVADStatus('listening', 'Listening for your voice...');
+                            }
+                        }, 500);
+                    }
+                    break;
+                    
+                case 'no_audio':
+                    updateVADStatus('listening', 'Listening for your voice...');
+                    break;
+                    
+                case 'error':
+                    addMessage('System', `Error: ${data.message}`, 'system');
+                    updateVADStatus('listening', 'Listening for your voice...');
+                    break;
+            }
+        }
+
+        // =====================================================
+        // UI FUNCTIONS
+        // =====================================================
+        
+        function displayRepresentatives(reps) {
+            const container = document.getElementById('repsContainer');
+            container.innerHTML = '';
+            
+            reps.forEach(rep => {
+                const card = document.createElement('div');
+                card.className = 'rep-card';
+                card.innerHTML = `
+                    <h3>${rep.name}</h3>
+                    <p><strong>Role:</strong> ${rep.role}</p>
+                    <p><strong>Personality:</strong> ${rep.personality.join(', ')}</p>
+                `;
+                container.appendChild(card);
+            });
+        }
+        
+        function addMessage(speaker, text, type = 'user') {
+            const transcript = document.getElementById('transcript');
+            
+            if (transcript.querySelector('.transcript-empty')) {
+                transcript.innerHTML = '';
+            }
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message message-${type}`;
+            
+            const speakerIcon = type === 'user' ? '🧑‍💼' : (type === 'ai' ? '🤖' : 'ℹ️');
+            
+            messageDiv.innerHTML = `
+                <div class="message-speaker">${speakerIcon} ${speaker}</div>
+                <div class="message-text">${text}</div>
+                <div class="message-meta">${new Date().toLocaleTimeString()}</div>
+            `;
+            
+            transcript.appendChild(messageDiv);
+            transcript.scrollTop = transcript.scrollHeight;
+        }
+
+        // =====================================================
+        // AUDIO PLAYBACK FUNCTIONS
+        // =====================================================
+        
+        async function playAudioChunk(base64Audio) {
+            if (!base64Audio || base64Audio === '') return;
+            
+            audioQueue.push(base64Audio);
+            
+            if (!isPlayingAudio) {
+                playNextAudio();
+            }
+        }
+        
+        async function playNextAudio() {
+            if (audioQueue.length === 0) {
+                isPlayingAudio = false;
+                return;
+            }
+            
+            isPlayingAudio = true;
+            const base64Audio = audioQueue.shift();
+            
+            const formats = ['audio/mpeg', 'audio/mp3', 'audio/wav'];
+            let played = false;
+            
+            for (const format of formats) {
+                if (played) break;
+                
+                try {
+                    currentAudio = new Audio(`data:${format};base64,${base64Audio}`);
+                    
+                    currentAudio.onended = () => {
+                        playNextAudio();
+                    };
+                    
+                    currentAudio.onerror = () => {};
+                    
+                    await currentAudio.play();
+                    played = true;
+                    
+                } catch (e) {
+                    continue;
+                }
+            }
+            
+            if (!played) {
+                playNextAudio();
+            }
+        }
+
+        // =====================================================
+        // CLEANUP FUNCTIONS
+        // =====================================================
+        
+        function stopVAD() {
+            console.log('🛑 Stopping VAD...');
+            
+            if (javascriptNode) {
+                javascriptNode.disconnect();
+                javascriptNode = null;
+            }
+            
+            if (analyser) {
+                analyser.disconnect();
+                analyser = null;
+            }
+            
+            if (microphone) {
+                microphone.disconnect();
+                microphone = null;
+            }
+            
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+            
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+                audioStream = null;
+            }
+            
+            if (silenceTimer) {
+                clearTimeout(silenceTimer);
+                silenceTimer = null;
+            }
+            
+            mediaRecorder = null;
+            isUserSpeaking = false;
+            audioChunksBuffer = [];
+        }
+        
+        function disconnect() {
+            console.log('👋 Disconnecting...');
+            
+            // Send disconnect message
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'disconnect' }));
+                ws.close();
+            }
+            
+            // Stop VAD
+            stopVAD();
+            
+            // Clear audio
+            audioQueue = [];
+            isPlayingAudio = false;
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio = null;
+            }
+            
+            // Reset UI
+            document.getElementById('setupSection').classList.remove('hidden');
+            document.getElementById('statusSection').classList.add('hidden');
+            document.getElementById('repsSection').classList.add('hidden');
+            document.getElementById('vadSection').classList.add('hidden');
+            document.getElementById('transcriptSection').classList.add('hidden');
+            document.getElementById('disconnectSection').classList.add('hidden');
+            document.getElementById('transcript').innerHTML = '<div class="transcript-empty">Conversation will appear here...</div>';
+            
+            isConnected = false;
+            currentMeetingId = null;
+        }
+        
+        // Keep-alive ping
+        setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 30000);
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            disconnect();
+        });
+    </script>
+</body>
+</html>
