@@ -50,15 +50,21 @@ class SalespersonCreate(BaseModel):
     product_name: str
     product_url: Optional[HttpUrl] = None
     description: str
-    materials: Optional[List[ProductMaterial]] = []
+    # materials: Optional[List[ProductMaterial]] = []
 
 
 class SalespersonResponse(BaseModel):
+    # id: str
+    # product_name: str
+    # product_url: Optional[str] = None
+    # description: str
+    # materials: List[ProductMaterial]
+    # created_at: datetime
     id: str
     product_name: str
     product_url: Optional[str] = None
     description: str
-    materials: List[ProductMaterial]
+    materials: List[ProductMaterial] = []  # S3 upload এর পরে populate হবে
     created_at: datetime
 
 
