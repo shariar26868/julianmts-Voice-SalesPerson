@@ -69,50 +69,100 @@ async def get_company_data(company_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/{company_id}/representatives", response_model=dict)
-async def add_representative(
-    company_id: str,
-    representative: RepresentativeCreate
-):
-    """Add a company representative"""
+# @router.post("/{company_id}/representatives", response_model=dict)
+# async def add_representative(
+#     company_id: str,
+#     representative: RepresentativeCreate
+# ):
+#     """Add a company representative"""
     
+#     try:
+#         company_collection = get_company_collection()
+#         company = await company_collection.find_one({"_id": company_id})
+        
+#         if not company:
+#             raise HTTPException(status_code=404, detail="Company not found")
+        
+#         rep_id = generate_id()
+        
+#         rep_doc = {
+#             "_id": rep_id,
+#             "company_id": company_id,
+#             "name": representative.name,
+#             "role": representative.role.value,
+#             # "tenure_months": representative.tenure_months,
+#             # "personality_traits": [trait.value for trait in representative.personality_traits],
+#             "is_decision_maker": representative.is_decision_maker,
+#             "linkedin_profile": str(representative.linkedin_profile) if representative.linkedin_profile else None,
+#             "notes": representative.notes,
+#             "voice_id": representative.voice_id,
+#             "created_at": current_timestamp()
+#         }
+        
+#         rep_collection = get_representative_collection()
+#         await rep_collection.insert_one(rep_doc)
+        
+#         return build_api_response(
+#             success=True,
+#             data={"representative_id": rep_id},
+#             message="Representative added successfully"
+#         )
+    
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+from typing import List
+
+@router.post("/{company_id}/representatives", response_model=dict)
+async def add_representatives(
+    company_id: str,
+    representatives: List[RepresentativeCreate]
+):
+    """Add multiple company representatives"""
+
     try:
         company_collection = get_company_collection()
         company = await company_collection.find_one({"_id": company_id})
-        
+
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
-        
-        rep_id = generate_id()
-        
-        rep_doc = {
-            "_id": rep_id,
-            "company_id": company_id,
-            "name": representative.name,
-            "role": representative.role.value,
-            "tenure_months": representative.tenure_months,
-            "personality_traits": [trait.value for trait in representative.personality_traits],
-            "is_decision_maker": representative.is_decision_maker,
-            "linkedin_profile": str(representative.linkedin_profile) if representative.linkedin_profile else None,
-            "notes": representative.notes,
-            "voice_id": representative.voice_id,
-            "created_at": current_timestamp()
-        }
-        
+
         rep_collection = get_representative_collection()
-        await rep_collection.insert_one(rep_doc)
-        
+        inserted_ids = []
+
+        for representative in representatives:
+            rep_id = generate_id()
+
+            rep_doc = {
+                "_id": rep_id,
+                "company_id": company_id,
+                "name": representative.name,
+                "role": representative.role.value,
+                "is_decision_maker": representative.is_decision_maker,
+                "linkedin_profile": str(representative.linkedin_profile) if representative.linkedin_profile else None,
+                "notes": representative.notes,
+                "voice_id": representative.voice_id,
+                "created_at": current_timestamp()
+            }
+
+            await rep_collection.insert_one(rep_doc)
+            inserted_ids.append(rep_id)
+
         return build_api_response(
             success=True,
-            data={"representative_id": rep_id},
-            message="Representative added successfully"
+            data={"representative_ids": inserted_ids},
+            message="Representatives added successfully"
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
+    
 
 @router.get("/{company_id}/representatives", response_model=dict)
 async def get_company_representatives(company_id: str):

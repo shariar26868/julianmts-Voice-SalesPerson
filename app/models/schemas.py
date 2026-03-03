@@ -317,8 +317,8 @@ class CompanyResponse(BaseModel):
 class RepresentativeCreate(BaseModel):
     name: str
     role: RoleType
-    tenure_months: int
-    personality_traits: List[PersonalityType]
+    # tenure_months: int
+    # personality_traits: List[PersonalityType]
     is_decision_maker: bool = False
     linkedin_profile: Optional[HttpUrl] = None
     notes: Optional[str] = None
@@ -329,8 +329,8 @@ class RepresentativeResponse(BaseModel):
     id: str
     name: str
     role: str
-    tenure_months: int
-    personality_traits: List[str]
+    # tenure_months: int
+    # personality_traits: List[str]
     is_decision_maker: bool
     linkedin_profile: Optional[str]
     notes: Optional[str]
