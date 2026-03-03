@@ -99,7 +99,7 @@ async def create_meeting(meeting_data: MeetingCreate):
                 "id": str(rep["_id"]),
                 "name": rep["name"],
                 "role": rep["role"],
-                "personality_traits": rep["personality_traits"],
+                # "personality_traits": rep["personality_traits"],
                 "is_decision_maker": rep["is_decision_maker"]
             })
         
@@ -142,7 +142,7 @@ async def get_meeting(meeting_id: str):
                     "id": str(rep["_id"]),
                     "name": rep["name"],
                     "role": rep["role"],
-                    "personality_traits": rep["personality_traits"],
+                    # "personality_traits": rep["personality_traits"],
                     "is_decision_maker": rep["is_decision_maker"]
                 })
         

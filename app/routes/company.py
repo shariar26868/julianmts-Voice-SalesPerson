@@ -203,8 +203,8 @@ async def update_representative(
         update_data = {
             "name": representative.name,
             "role": representative.role.value,
-            "tenure_months": representative.tenure_months,
-            "personality_traits": [trait.value for trait in representative.personality_traits],
+            # "tenure_months": representative.tenure_months,
+            # "personality_traits": [trait.value for trait in representative.personality_traits],
             "is_decision_maker": representative.is_decision_maker,
             "linkedin_profile": str(representative.linkedin_profile) if representative.linkedin_profile else None,
             "notes": representative.notes,
