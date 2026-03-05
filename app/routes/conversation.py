@@ -1083,11 +1083,39 @@ async def send_message(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{meeting_id}/history", response_model=dict)
-async def get_conversation_history(meeting_id: str):
+@router.get("/{meeting_id}/sessions", response_model=dict)
+async def get_meeting_sessions(meeting_id: str):
+    """List all practice sessions for a meeting, newest first."""
     try:
         col = get_conversation_collection()
-        conv = await col.find_one({"meeting_id": meeting_id})
+        cursor = col.find({"meeting_id": meeting_id}, sort=[("attempt_number", -1)])
+        sessions = []
+        async for doc in cursor:
+            sessions.append({
+                "session_id":    doc.get("session_id"),
+                "attempt_number": doc.get("attempt_number", 1),
+                "total_turns":   doc.get("total_turns", 0),
+                "created_at":    doc.get("created_at"),
+                "recording_url": f"/api/conversation/{meeting_id}/recording?session_id={doc.get('session_id')}",
+                "history_url":   f"/api/conversation/{meeting_id}/history?session_id={doc.get('session_id')}",
+            })
+        return build_api_response(success=True, data={"sessions": sessions, "total": len(sessions)})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{meeting_id}/history", response_model=dict)
+async def get_conversation_history(meeting_id: str, session_id: Optional[str] = None):
+    """Get transcript for a specific session (or latest if no session_id)."""
+    try:
+        col = get_conversation_collection()
+        query = {"meeting_id": meeting_id}
+        if session_id:
+            query["session_id"] = session_id
+            conv = await col.find_one(query)
+        else:
+            # Return the most recent session
+            conv = await col.find_one(query, sort=[("attempt_number", -1)])
         if not conv:
             return build_api_response(success=True, data={"turns": [], "total_turns": 0,
                 "salesperson_talk_time": 0, "representatives_talk_time": 0})
@@ -1098,7 +1126,7 @@ async def get_conversation_history(meeting_id: str):
 
 
 @router.get("/{meeting_id}/recording")
-async def get_conversation_recording(meeting_id: str):
+async def get_conversation_recording(meeting_id: str, session_id: Optional[str] = None):
     """
     Download the full conversation as a single merged MP3 file.
     Fetches each turn's audio from S3 (in turn_number order) and streams
@@ -1106,7 +1134,12 @@ async def get_conversation_recording(meeting_id: str):
     """
     try:
         col = get_conversation_collection()
-        conv = await col.find_one({"meeting_id": meeting_id})
+        query = {"meeting_id": meeting_id}
+        if session_id:
+            query["session_id"] = session_id
+            conv = await col.find_one(query)
+        else:
+            conv = await col.find_one(query, sort=[("attempt_number", -1)])
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -1234,20 +1267,31 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                 representatives.append(r)
         
         conv_col = get_conversation_collection()
-        conversation = await conv_col.find_one({"meeting_id": meeting_id})
-        if not conversation:
-            conversation = {
-                "_id": generate_id(), "meeting_id": meeting_id,
-                "turns": [], "total_turns": 0,
-                "salesperson_talk_time": 0.0, "representatives_talk_time": 0.0,
-                "created_at": current_timestamp()
-            }
-            await conv_col.insert_one(conversation)
-        
+
+        # Count existing sessions to determine attempt number
+        existing_count = await conv_col.count_documents({"meeting_id": meeting_id})
+        attempt_number = existing_count + 1
+        session_id = generate_id()  # unique per session
+
+        # Always create a FRESH conversation document for this session
+        conversation = {
+            "_id": generate_id(),
+            "session_id": session_id,
+            "meeting_id": meeting_id,
+            "attempt_number": attempt_number,
+            "turns": [], "total_turns": 0,
+            "salesperson_talk_time": 0.0, "representatives_talk_time": 0.0,
+            "created_at": current_timestamp()
+        }
+        await conv_col.insert_one(conversation)
+        print(f"📋 New session #{attempt_number} created: {session_id}")
+
         await websocket.send_json({
             "type": "connected",
             "message": "Connected to live conversation",
             "meeting_id": meeting_id,
+            "session_id": session_id,
+            "attempt_number": attempt_number,
             "representatives": [
                 {"id": r["id"], "name": r["name"], "role": r["role"],
                  "personality": r.get("personality_traits", [])}
@@ -1255,8 +1299,8 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
             ]
         })
         
-        audio_stream_service.start_stream(meeting_id)
-        print(f"✅ WS connected: {meeting_id}")
+        audio_stream_service.start_stream(session_id)  # use session_id so streams don't collide
+        print(f"✅ WS connected: {meeting_id} | session #{attempt_number} ({session_id})")
         
         while True:
             data = await websocket.receive_json()
