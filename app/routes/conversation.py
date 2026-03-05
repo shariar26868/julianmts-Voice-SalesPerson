@@ -1310,10 +1310,10 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                 is_speaking = data.get("is_speaking", True)
                 
                 if is_speaking:
-                    audio_stream_service.add_audio_chunk(meeting_id, data.get("data"))
+                    audio_stream_service.add_audio_chunk(session_id, data.get("data"))
                 else:
                     print("🎙️ User stopped, processing...")
-                    chunks = audio_stream_service.stop_speaking(meeting_id)
+                    chunks = audio_stream_service.stop_speaking(session_id)
                     
                     if not chunks:
                         continue
@@ -1335,8 +1335,8 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     await websocket.send_json({"type": "transcription", "text": transcribed, "speaker": "salesperson"})
                     await websocket.send_json({"type": "ai_thinking", "message": "AI is thinking..."})
                     
-                    # Fresh DB state
-                    conversation = await conv_col.find_one({"meeting_id": meeting_id})
+                    # Fresh DB state for THIS session
+                    conversation = await conv_col.find_one({"session_id": session_id})
                     conv_history = list(conversation.get("turns", []))
                     current_turn = conversation.get("total_turns", len(conv_history)) + 1
                     
@@ -1490,7 +1490,7 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     
                     try:
                         await conv_col.update_one(
-                            {"meeting_id": meeting_id},
+                            {"session_id": session_id},
                             {
                                 "$inc": {"salesperson_talk_time": 5.0, "representatives_talk_time": total_ai_time},
                                 "$push": {"turns": {"$each": turns_to_save}},
@@ -1523,8 +1523,8 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
         except:
             pass
     finally:
-        audio_stream_service.clear_stream(meeting_id)
-        print(f"🧹 Cleaned up: {meeting_id}")
+        audio_stream_service.clear_stream(session_id)
+        print(f"🧹 Cleaned up session: {session_id} (meeting: {meeting_id})")
 
 
 @router.websocket("/ws/test-connection/{meeting_id}")
