@@ -853,6 +853,8 @@ from app.utils.helpers import (
 import json
 import asyncio
 import base64
+import io
+from fastapi.responses import StreamingResponse
 
 router = APIRouter(prefix="/api/conversation", tags=["Conversation"])
 
@@ -1095,6 +1097,82 @@ async def get_conversation_history(meeting_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{meeting_id}/recording")
+async def get_conversation_recording(meeting_id: str):
+    """
+    Download the full conversation as a single merged MP3 file.
+    Fetches each turn's audio from S3 (in turn_number order) and streams
+    the concatenated bytes back as audio/mpeg.
+    """
+    try:
+        col = get_conversation_collection()
+        conv = await col.find_one({"meeting_id": meeting_id})
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        turns = conv.get("turns", [])
+        if not turns:
+            raise HTTPException(status_code=404, detail="No turns found in conversation")
+
+        # Sort turns by turn_number so audio is in the correct order
+        sorted_turns = sorted(turns, key=lambda t: t.get("turn_number", 0))
+
+        # Collect audio URLs that actually have audio saved
+        audio_urls = [
+            t["audio_url"]
+            for t in sorted_turns
+            if t.get("audio_url")
+        ]
+
+        if not audio_urls:
+            raise HTTPException(
+                status_code=404,
+                detail="No audio recordings found for this conversation. "
+                       "Audio may not have been saved during the session."
+            )
+
+        print(f"🎞️ Merging {len(audio_urls)} audio segments for meeting {meeting_id}")
+
+        # Download all segments from S3 and concatenate
+        merged = io.BytesIO()
+        downloaded = 0
+        for url in audio_urls:
+            audio_bytes = await s3_service.download_file(url)
+            if audio_bytes:
+                merged.write(audio_bytes)
+                downloaded += 1
+
+        if downloaded == 0:
+            raise HTTPException(
+                status_code=502,
+                detail="Could not download any audio segments from storage."
+            )
+
+        merged.seek(0)
+        print(f"✅ Merged {downloaded}/{len(audio_urls)} segments — "
+              f"{merged.getbuffer().nbytes} bytes total")
+
+        filename = f"meeting_{meeting_id}_recording.mp3"
+
+        return StreamingResponse(
+            merged,
+            media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(merged.getbuffer().nbytes),
+                "X-Segments-Merged": str(downloaded),
+                "X-Total-Segments": str(len(audio_urls)),
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Recording merge error: {e}")
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{meeting_id}/analytics", response_model=dict)
 async def get_conversation_analytics(meeting_id: str):
     try:
@@ -1196,6 +1274,9 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     if not chunks:
                         continue
                     
+                    # Combine raw audio bytes (used for both Whisper AND S3 upload)
+                    combined_salesperson_audio = b"".join(chunks)
+                    
                     # Transcribe
                     try:
                         transcribed = await whisper_service.transcribe_audio_stream(chunks)
@@ -1215,10 +1296,17 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     conv_history = list(conversation.get("turns", []))
                     current_turn = conversation.get("total_turns", len(conv_history)) + 1
                     
+                    # Upload salesperson audio to S3 for full recording
+                    salesperson_audio_url = None
+                    if combined_salesperson_audio:
+                        salesperson_audio_url = await _upload_audio(
+                            combined_salesperson_audio, meeting_id, current_turn, "salesperson"
+                        )
+                    
                     salesperson_turn = {
                         "turn_number": current_turn, "speaker": "salesperson",
                         "speaker_name": "Salesperson", "text": transcribed,
-                        "audio_url": None,
+                        "audio_url": salesperson_audio_url,
                         "timestamp": format_duration(len(conv_history) * 10),
                         "duration_seconds": 5.0, "created_at": current_timestamp()
                     }
@@ -1269,10 +1357,15 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     v_id, personality = await _get_rep_voice_and_personality(primary_rep)
                     primary_audio = await _generate_audio(primary_text, v_id, personality)
                     
+                    # Upload primary audio to S3 for recording
+                    primary_audio_url = await _upload_audio(
+                        primary_audio, meeting_id, primary_turn_number, primary_rep["id"]
+                    )
+                    
                     primary_turn = {
                         "turn_number": primary_turn_number, "speaker": primary_rep["id"],
                         "speaker_name": primary_rep["name"], "text": primary_text,
-                        "audio_url": None,
+                        "audio_url": primary_audio_url,
                         "timestamp": format_duration(len(conv_history) * 10),
                         "duration_seconds": 6.0, "created_at": current_timestamp()
                     }
@@ -1316,10 +1409,15 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                         v_id2, personality2 = await _get_rep_voice_and_personality(secondary_rep)
                         secondary_audio = await _generate_audio(secondary_text, v_id2, personality2)
                         
+                        # Upload secondary audio to S3 for recording
+                        secondary_audio_url = await _upload_audio(
+                            secondary_audio, meeting_id, secondary_turn_number, secondary_rep["id"]
+                        )
+                        
                         secondary_turn = {
                             "turn_number": secondary_turn_number, "speaker": secondary_rep["id"],
                             "speaker_name": secondary_rep["name"], "text": secondary_text,
-                            "audio_url": None,
+                            "audio_url": secondary_audio_url,
                             "timestamp": format_duration((len(conv_history) + 1) * 10),
                             "duration_seconds": 4.0, "created_at": current_timestamp()
                         }

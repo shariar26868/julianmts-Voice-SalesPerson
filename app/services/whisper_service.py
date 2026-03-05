@@ -250,7 +250,7 @@ class WhisperService:
             combined_audio = b''.join(processed_chunks)
             print(f"📦 Combined audio size: {len(combined_audio)} bytes")
             
-            if len(combined_audio) < 10000:  # 10KB এর কম হলে skip
+            if len(combined_audio) < 1000:  # 1KB এর কম হলে skip (too short / no real audio)
                 print("⚠️ Audio too short/noise, skipping")
                 return ""
             

@@ -958,26 +958,48 @@ async function startListening() {
         console.log('🎙️ MediaRecorder mimeType:', mediaRecorder.mimeType);
 
         let hasSentAudio = false;
+        let pendingReaders = 0;
+        let stopSignalPending = false;
+
+        function maybeSendStopSignal() {
+            if (stopSignalPending && pendingReaders === 0) {
+                stopSignalPending = false;
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'audio_chunk', data: '', is_speaking: false }));
+                    console.log('🛑 Stop signal sent (all chunks flushed)');
+                }
+            }
+        }
 
         mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN) {
+                pendingReaders++;
                 const reader = new FileReader();
                 reader.readAsDataURL(event.data);
                 reader.onloadend = () => {
                     const b64 = reader.result.split(',')[1];
                     ws.send(JSON.stringify({ type: 'audio_chunk', data: b64, is_speaking: true }));
                     hasSentAudio = true;
+                    pendingReaders--;
+                    maybeSendStopSignal(); // send stop if onstop already fired
                 };
             }
         };
 
         mediaRecorder.onstop = () => {
-            if (ws && ws.readyState === WebSocket.OPEN && hasSentAudio) {
-                ws.send(JSON.stringify({ type: 'audio_chunk', data: '', is_speaking: false }));
-            }
             audioStream.getTracks().forEach(t => t.stop());
             if (audioContext) { audioContext.close(); audioContext = null; }
             stopVolumeMonitor();
+            if (!hasSentAudio || !ws || ws.readyState !== WebSocket.OPEN) return;
+            if (pendingReaders === 0) {
+                // All chunks already sent — fire stop immediately
+                ws.send(JSON.stringify({ type: 'audio_chunk', data: '', is_speaking: false }));
+                console.log('🛑 Stop signal sent immediately');
+            } else {
+                // Still waiting for FileReader callbacks — defer stop signal
+                stopSignalPending = true;
+                console.log(`⏳ Deferring stop signal, ${pendingReaders} readers pending`);
+            }
         };
 
         mediaRecorder.start(100);
