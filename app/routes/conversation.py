@@ -1500,9 +1500,17 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                         print(f"💾 Saved {len(turns_to_save)} turns (up to #{last_turn_no})")
                         await websocket.send_json({
                             "type": "conversation_saved",
-                            "salesperson_turn": current_turn,
-                            "primary_turn": primary_turn_number,
-                            "secondary_turn": secondary_turn_number if secondary_turn else None
+                            "session_id": session_id,
+                            "turns": [
+                                {
+                                    "turn_number": t["turn_number"],
+                                    "speaker":     t["speaker"],
+                                    "speaker_name": t["speaker_name"],
+                                    "text":        t["text"],
+                                    "audio_url":   t.get("audio_url"),
+                                }
+                                for t in turns_to_save
+                            ]
                         })
                     except Exception as e:
                         print(f"❌ DB save error: {e}")
