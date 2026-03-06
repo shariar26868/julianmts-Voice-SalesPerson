@@ -1207,30 +1207,92 @@ async def get_conversation_recording(meeting_id: str, session_id: Optional[str] 
 
 
 @router.get("/{meeting_id}/analytics", response_model=dict)
-async def get_conversation_analytics(meeting_id: str):
+async def get_conversation_analytics(meeting_id: str, session_id: Optional[str] = None):
     try:
         col = get_conversation_collection()
-        conv = await col.find_one({"meeting_id": meeting_id})
+        query = {"meeting_id": meeting_id}
+        if session_id:
+            query["session_id"] = session_id
+        
+        # Get the requested session (or latest)
+        conv = await col.find_one(query, sort=[("attempt_number", -1)])
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
         
-        total_time = conv["salesperson_talk_time"] + conv["representatives_talk_time"]
-        analytics = {
-            "total_turns": conv["total_turns"],
-            "salesperson_turns": len([t for t in conv["turns"] if t["speaker"] == "salesperson"]),
-            "ai_turns": len([t for t in conv["turns"] if t["speaker"] != "salesperson"]),
-            "salesperson_talk_time": conv["salesperson_talk_time"],
-            "representatives_talk_time": conv["representatives_talk_time"],
+        # Return saved AI analytics if they exist
+        if "analytics" in conv:
+            return build_api_response(success=True, data=conv["analytics"])
+        
+        # Fallback to basic stats if AI analytics pending
+        total_time = conv.get("salesperson_talk_time", 0) + conv.get("representatives_talk_time", 0)
+        basic_stats = {
+            "status": "processing",
+            "message": "AI analytics are currently being generated. Please wait and refresh.",
+            "total_turns": conv.get("total_turns", 0),
+            "salesperson_talk_time": conv.get("salesperson_talk_time", 0),
+            "representatives_talk_time": conv.get("representatives_talk_time", 0),
             "total_duration": total_time,
-            "salesperson_talk_ratio": round(conv["salesperson_talk_time"] / total_time * 100, 2) if total_time else 0,
-            "representatives_talk_ratio": round(conv["representatives_talk_time"] / total_time * 100, 2) if total_time else 0,
-            "questions_asked": sum(1 for t in conv["turns"] if t["speaker"] == "salesperson" and "?" in t["text"])
         }
-        return build_api_response(success=True, data=analytics)
+        return build_api_response(success=True, data=basic_stats)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+async def _generate_and_save_analytics(session_id: str):
+    """Background task to generate and save AI analytics after a session ends."""
+    try:
+        conv_col = get_conversation_collection()
+        conv = await conv_col.find_one({"session_id": session_id})
+        if not conv or not conv.get("turns"):
+            print(f"⏭️ Skipping analytics for {session_id} - no conversation data")
+            return
+            
+        print(f"📊 Starting background AI analytics for session {session_id}...")
+        
+        # Fetch related data for context
+        meeting_id = conv["meeting_id"]
+        meeting = await get_meeting_collection().find_one({"_id": meeting_id})
+        if not meeting: return
+        
+        salesperson = await get_salesperson_collection().find_one({"_id": meeting["salesperson_id"]})
+        company = await get_company_collection().find_one({"_id": meeting["company_id"]})
+        
+        # Generate complex AI analytics
+        analytics_result = await openai_service.generate_conversation_analytics(
+            conversation_history=conv["turns"],
+            salesperson_data=salesperson or {},
+            company_data=company or {}
+        )
+        
+        # Calculate talk time ratios
+        total_time = conv.get("salesperson_talk_time", 0) + conv.get("representatives_talk_time", 0)
+        sp_ratio = round(conv.get("salesperson_talk_time", 0) / total_time * 100, 2) if total_time else 0
+        ai_ratio = round(conv.get("representatives_talk_time", 0) / total_time * 100, 2) if total_time else 0
+        
+        # Combine basic stats with AI insights
+        analytics_result.update({
+            "total_turns": conv.get("total_turns", 0),
+            "salesperson_turns": len([t for t in conv["turns"] if t["speaker"] == "salesperson"]),
+            "ai_turns": len([t for t in conv["turns"] if t["speaker"] != "salesperson"]),
+            "salesperson_talk_time": conv.get("salesperson_talk_time", 0),
+            "representatives_talk_time": conv.get("representatives_talk_time", 0),
+            "total_duration": total_time,
+            "salesperson_talk_ratio": sp_ratio,
+            "representatives_talk_ratio": ai_ratio,
+            "questions_asked": sum(1 for t in conv["turns"] if t["speaker"] == "salesperson" and "?" in t["text"])
+        })
+        
+        # Save back to database
+        await conv_col.update_one(
+            {"session_id": session_id},
+            {"$set": {"analytics": analytics_result}}
+        )
+        print(f"✅ AI Analytics completed and saved for session {session_id}")
+        
+    except Exception as e:
+        print(f"❌ Background analytics error for {session_id}: {e}")
+        import traceback; traceback.print_exc()
 
 
 @router.websocket("/ws/live-conversation/{meeting_id}")
@@ -1532,6 +1594,8 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
             pass
     finally:
         audio_stream_service.clear_stream(session_id)
+        # Trigger AI Analytics in background after disconnect
+        asyncio.create_task(_generate_and_save_analytics(session_id))
         print(f"🧹 Cleaned up session: {session_id} (meeting: {meeting_id})")
 
 

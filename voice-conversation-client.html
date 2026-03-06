@@ -1394,6 +1394,21 @@
                 case 'conversation_saved':
                     // Enable download button once first turn is saved
                     document.getElementById('downloadBtn').disabled = false;
+
+                    // Show audio links
+                    if (data.turns && data.turns.length > 0) {
+                        const audioBlock = document.createElement('div');
+                        audioBlock.className = 'message message-system';
+                        const links = data.turns
+                            .filter(t => t.audio_url)
+                            .map(t => `<a href="${t.audio_url}" target="_blank" style="display:block;color:#667eea;font-size:0.82rem;margin:2px 0;word-break:break-all;text-decoration:none;">🔊 Turn ${t.turn_number} — ${t.speaker_name}</a>`)
+                            .join('');
+                        if (links) {
+                            audioBlock.innerHTML = `<div class="message-speaker">🔗 Audio Links Saved</div><div>${links}</div>`;
+                            document.getElementById('transcript').appendChild(audioBlock);
+                            document.getElementById('transcript').scrollTop = document.getElementById('transcript').scrollHeight;
+                        }
+                    }
                     break;
 
                 case 'no_audio':

@@ -249,6 +249,98 @@ async def get_salesperson_data(salesperson_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{salesperson_id}/analytics", response_model=dict)
+async def get_salesperson_analytics(salesperson_id: str):
+    """
+    Get aggregated analytics for a salesperson across all their meetings/sessions.
+    Endpoint: GET /api/salesperson/{salesperson_id}/analytics
+    """
+    try:
+        from app.config.database import get_meeting_collection, get_conversation_collection
+        
+        # 1. Find all meetings for this salesperson
+        meeting_col = get_meeting_collection()
+        meetings = await meeting_col.find({"salesperson_id": salesperson_id}).to_list(length=None)
+        
+        if not meetings:
+            return build_api_response(success=True, data={
+                "total_sessions": 0, "message": "No meetings found for this salesperson."
+            })
+            
+        meeting_ids = [m["_id"] for m in meetings]
+        
+        # 2. Find all conversation sessions for these meetings
+        conv_col = get_conversation_collection()
+        cursor = conv_col.find({"meeting_id": {"$in": meeting_ids}})
+        
+        total_sessions = 0
+        total_score = 0
+        scored_sessions = 0
+        total_sp_time = 0
+        total_ai_time = 0
+        sentiment_counts = {"Positive": 0, "Neutral": 0, "Negative": 0}
+        all_risks = []
+        all_opportunities = []
+        
+        async for session in cursor:
+            total_sessions += 1
+            total_sp_time += session.get("salesperson_talk_time", 0)
+            total_ai_time += session.get("representatives_talk_time", 0)
+            
+            # Aggregate AI analytics if present
+            analytics = session.get("analytics")
+            if analytics:
+                score = analytics.get("overall_score", 0)
+                if score > 0:
+                    total_score += score
+                    scored_sessions += 1
+                
+                sentiment = analytics.get("sentiment")
+                if sentiment in sentiment_counts:
+                    sentiment_counts[sentiment] += 1
+                
+                all_risks.extend(analytics.get("risks", []))
+                all_opportunities.extend(analytics.get("opportunities", []))
+                
+        if total_sessions == 0:
+            return build_api_response(success=True, data={
+                "total_sessions": 0, "message": "No practice sessions recorded yet."
+            })
+            
+        # Calculate final aggregated metrics
+        avg_score = round(total_score / scored_sessions, 1) if scored_sessions > 0 else 0
+        total_time = total_sp_time + total_ai_time
+        sp_ratio = round(total_sp_time / total_time * 100, 1) if total_time > 0 else 0
+        ai_ratio = round(total_ai_time / total_time * 100, 1) if total_time > 0 else 0
+        
+        # Get top 5 risks and opportunities (simple frequency count without heavy NLP logic)
+        from collections import Counter
+        top_risks = [k for k, v in Counter(all_risks).most_common(5)]
+        top_opportunities = [k for k, v in Counter(all_opportunities).most_common(5)]
+        
+        # Determine dominant sentiment
+        dominant_sentiment = max(sentiment_counts, key=sentiment_counts.get) if any(sentiment_counts.values()) else "Neutral"
+        
+        aggregated_data = {
+            "total_sessions": total_sessions,
+            "average_engagement_score": avg_score,
+            "talk_time_distribution": {
+                "salesperson_percentage": sp_ratio,
+                "ai_percentage": ai_ratio,
+                "total_minutes": round(total_time / 60, 2)
+            },
+            "dominant_sentiment": dominant_sentiment,
+            "sentiment_breakdown": sentiment_counts,
+            "top_risks_identified": top_risks,
+            "top_opportunities": top_opportunities,
+        }
+        
+        return build_api_response(success=True, data=aggregated_data)
+        
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.put("/{salesperson_id}", response_model=dict)
 async def update_salesperson_data(
     salesperson_id: str,

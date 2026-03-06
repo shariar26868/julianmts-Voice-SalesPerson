@@ -621,5 +621,102 @@ Return ONLY: {{"questions": ["q1","q2","q3","q4","q5"]}}"""
                     "What would success look like?", "What's your implementation timeline?",
                     "Who else needs to be part of this decision?"]
 
+    async def generate_conversation_analytics(
+        self,
+        conversation_history: List[Dict[str, Any]],
+        salesperson_data: Dict[str, Any],
+        company_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Generate comprehensive post-meeting analytics from the transcript."""
+        try:
+            # Build transcript string
+            transcript = "\n".join([
+                f"[{t.get('speaker_name', 'Unknown')}]: {t.get('text', '')}"
+                for t in conversation_history
+            ])
+            
+            if not transcript.strip():
+                return self._empty_analytics()
+
+            system_prompt = f"""
+You are an expert Sales Manager and Conversation Analyst.
+Analyze the following sales conversation transcript.
+
+SALESPERSON: {salesperson_data.get('name', 'Unknown')} selling {salesperson_data.get('product_name', 'Product')}
+COMPANY: {company_data.get('company_data', {}).get('industry', 'Unknown Industry')}
+
+Your goal is to extract deep insights, MEDDIC criteria, sentiment, and scores.
+
+Return ONLY a valid JSON object matching exactly this structure:
+{{
+    "overall_score": 85, // 0-100 integer
+    "meddic": {{
+        "metrics": "...",
+        "economic_buyer": "...",
+        "decision_criteria": "...",
+        "decision_process": "...",
+        "identify_pain": "...",
+        "champion": "..."
+    }},
+    "key_points": [
+        "Point 1",
+        "Point 2",
+        "Point 3"
+    ],
+    "next_steps": [
+        "Step 1",
+        "Step 2"
+    ],
+    "sentiment": "Positive", // "Positive", "Neutral", "Negative"
+    "sentiment_suggestion": "...", // Brief advice based on sentiment
+    "active_listening_grade": "A-", // "A+", "A", "A-", "B+", "B", "C", "D"
+    "topics_discussed": [
+        "Pricing", "Implementation", "Security"
+    ],
+    "risks": [
+        "Risk 1", "Risk 2"
+    ],
+    "opportunities": [
+        "Opportunity 1", "Opportunity 2"
+    ]
+}}
+"""
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"TRANSCRIPT:\n\n{transcript}"}
+            ]
+            
+            print("🤖 Calling OpenAI for comprehensive analytics...")
+            response = await client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.3, # low temp for consistent analysis
+                response_format={"type": "json_object"}
+            )
+            
+            raw_content = response.choices[0].message.content
+            
+            try:
+                result = json.loads(raw_content)
+                return result
+            except json.JSONDecodeError:
+                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw_content, re.DOTALL)
+                if json_match:
+                    return json.loads(json_match.group(1))
+                return self._empty_analytics()
+                
+        except Exception as e:
+            print(f"❌ Error generating analytics: {e}")
+            import traceback
+            traceback.print_exc()
+            return self._empty_analytics()
+
+    def _empty_analytics(self) -> Dict[str, Any]:
+        return {
+            "overall_score": 0,
+            "meddic": {k: "Not enough data" for k in ["metrics", "economic_buyer", "decision_criteria", "decision_process", "identify_pain", "champion"]},
+            "key_points": [], "next_steps": [], "sentiment": "Unknown", "sentiment_suggestion": "No data available to analyze.",
+            "active_listening_grade": "N/A", "topics_discussed": [], "risks": [], "opportunities": []
+        }
 
 openai_service = OpenAIService()
