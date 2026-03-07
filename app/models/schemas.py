@@ -206,6 +206,9 @@ class PersonalityType(str, Enum):
     COOL = "cool"
     NOT_WELL = "not_well"
     ANALYTICAL = "analytical"
+    PROFESSIONAL = "professional"
+    CASUAL = "casual"
+    DIRECT = "direct"
 
 
 class RoleType(str, Enum):
@@ -223,6 +226,7 @@ class DifficultyLevel(str, Enum):
     BEGINNER = "beginner"
     INTERMEDIATE = "intermediate"
     ADVANCED = "advanced"
+    EXPERT = "expert"
 
 
 class MeetingMode(str, Enum):
