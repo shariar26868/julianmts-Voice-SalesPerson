@@ -81,6 +81,7 @@ async def create_meeting(meeting_data: MeetingCreate):
             "personality": meeting_data.personality.value,
             "duration_minutes": meeting_data.duration_minutes,
             "difficulty": meeting_data.difficulty.value,
+            "sales_methodology": meeting_data.sales_methodology.value,
             "status": "pending",  # pending, active, completed
             "created_at": current_timestamp(),
             "started_at": None,

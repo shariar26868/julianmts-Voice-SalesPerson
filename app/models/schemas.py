@@ -235,6 +235,15 @@ class MeetingMode(str, Enum):
     ONE_TO_THREE = "1-on-3"
 
 
+class SalesMethodology(str, Enum):
+    MEDDIC = "MEDDIC"
+    CHALLENGER_SALES = "Challenger Sales"
+    BANT = "BANT"
+    SPIN_SELLING = "SPIN Selling"
+    MEDDPICC = "MEDDPICC"
+    VALUE_SELLING = "Value Selling"
+
+
 # Sales Person Schemas
 class ProductMaterial(BaseModel):
     file_name: str
@@ -350,6 +359,7 @@ class MeetingCreate(BaseModel):
     personality: PersonalityType = PersonalityType.NICE
     duration_minutes: int = 30
     difficulty: DifficultyLevel = DifficultyLevel.BEGINNER
+    sales_methodology: SalesMethodology = SalesMethodology.MEDDIC
 
 
 class MeetingResponse(BaseModel):
@@ -363,6 +373,7 @@ class MeetingResponse(BaseModel):
     personality: str
     duration_minutes: int
     difficulty: str
+    sales_methodology: str
     status: str
     created_at: datetime
 
