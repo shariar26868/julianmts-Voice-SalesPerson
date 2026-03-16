@@ -366,6 +366,74 @@ Return ONLY valid JSON with this exact format:
                 "Who else needs to be part of this decision?"
             ]
 
+    async def generate_account_insights(
+            self,
+            company_data: Dict[str, Any],
+            meetings_summary: List[Dict[str, Any]]
+        ) -> Dict[str, Any]:
+            """Generate AI insights for account details page based on all meetings"""
+
+            try:
+                meetings_text = ""
+                for i, m in enumerate(meetings_summary, 1):
+                    meetings_text += f"""
+    Meeting {i}: {m.get('meeting_goal', 'N/A')}
+    - Date: {m.get('created_at', 'N/A')}
+    - Duration: {m.get('total_duration_seconds', 0):.0f}s
+    - Turns: {m.get('total_turns', 0)}
+    - Salesperson talk ratio: {m.get('salesperson_talk_ratio', 0)}%
+    - Questions asked: {m.get('questions_asked', 0)}
+    - Conversation sample: {m.get('last_ai_message', '')}
+    """
+
+                company_info = company_data.get('company_data', {})
+
+                prompt = f"""
+    You are a sales intelligence AI. Analyze these meetings for a company account and return insights.
+
+    COMPANY:
+    - Industry: {company_info.get('industry', 'N/A')}
+    - Size: {company_info.get('company_size', 'N/A')}
+    - Revenue: {company_info.get('revenue', 'N/A')}
+
+    MEETINGS ({len(meetings_summary)} total):
+    {meetings_text}
+
+    Return ONLY valid JSON:
+    {{
+        "average_engagement_score": <number 0-100>,
+        "engagement_label": "<e.g. Excellent - Highly Engaged>",
+        "sentiment_trend": "<improving|declining|stable>",
+        "sentiment_trend_label": "<short description>",
+        "risk_alerts": [
+            {{"type": "warning|success", "message": "<alert text>"}}
+        ],
+        "upsell_opportunities": [
+            {{"title": "<opportunity title>", "reason": "<why>"}}
+        ]
+    }}
+    """
+
+                response = await client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.7,
+                    response_format={"type": "json_object"}
+                )
+
+                return json.loads(response.choices[0].message.content)
+
+            except Exception as e:
+                print(f"❌ Error generating account insights: {e}")
+                return {
+                    "average_engagement_score": 0,
+                    "engagement_label": "No data",
+                    "sentiment_trend": "stable",
+                    "sentiment_trend_label": "Not enough data",
+                    "risk_alerts": [],
+                    "upsell_opportunities": []
+                }
+
 
 # Singleton instance
 openai_service = OpenAIService()
