@@ -789,7 +789,7 @@ router = APIRouter(prefix="/api/salesperson", tags=["Salesperson"])
                 "multipart/form-data": {
                     "schema": {
                         "type": "object",
-                        "required": ["product_name", "description"],
+                        "required": ["product_name"],
                         "properties": {
                             "product_name": {"type": "string"},
                             "description": {"type": "string"},
@@ -848,8 +848,8 @@ async def create_salesperson_with_files(request: Request):
                     "file_type": material.filename.split('.')[-1].lower()
                 })
 
-        if not product_name or not description:
-            raise HTTPException(status_code=400, detail="product_name and description are required")
+        if not product_name:
+            raise HTTPException(status_code=400, detail="product_name is required")
 
         salesperson_id = generate_id()
 
