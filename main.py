@@ -102,7 +102,8 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_db():
     await mongodb.connect_db()
-    print("🚀 AI Sales Training Platform started")
+    from app.config.settings import settings
+    print(f"🚀 AI Sales Training Platform started | DB: {settings.MONGODB_DB_NAME}")
 
 @app.on_event("shutdown")
 async def shutdown_db():
