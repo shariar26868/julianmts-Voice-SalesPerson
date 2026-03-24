@@ -752,6 +752,14 @@ Return ONLY valid JSON:
     "engagement_label": "<e.g. Excellent - Highly Engaged>",
     "sentiment_trend": "<improving|declining|stable>",
     "sentiment_trend_label": "<short description>",
+    "sentiment_data_points": [
+        {{
+            "meeting_id": "<id from above>",
+            "meeting_goal": "<goal>",
+            "sentiment_score": <0-100>,
+            "sentiment_label": "<Positive|Neutral|Negative>"
+        }}
+    ],
     "risk_alerts": [{{"type": "warning|success", "message": "<text>"}}],
     "upsell_opportunities": [{{"title": "<title>", "reason": "<why>"}}],
     "meeting_scores": [
@@ -788,6 +796,7 @@ Return ONLY valid JSON:
                 "engagement_label": "No data",
                 "sentiment_trend": "stable",
                 "sentiment_trend_label": "Not enough data",
+                "sentiment_data_points": [],
                 "risk_alerts": [],
                 "upsell_opportunities": [],
                 "meeting_scores": [],
