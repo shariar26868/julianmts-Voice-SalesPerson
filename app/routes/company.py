@@ -333,6 +333,7 @@ async def get_company_account_details(company_id: str):
             })
 
             meetings_summary.append({
+                "meeting_id": meeting_id,
                 "meeting_goal": meeting.get("meeting_goal"),
                 "created_at": str(meeting.get("created_at")),
                 "total_duration_seconds": meeting.get("total_duration_seconds", 0),
@@ -349,11 +350,19 @@ async def get_company_account_details(company_id: str):
                 meetings_summary=meetings_summary
             )
 
+        # merge meeting scores into meetings_data
+        score_map = {s["meeting_id"]: s for s in ai_insights.get("meeting_scores", [])}
+        for m in meetings_data:
+            score_info = score_map.get(m["meeting_id"], {})
+            m["score"] = score_info.get("score", 0)
+            m["score_label"] = score_info.get("label", "")
+
         company["id"] = str(company.pop("_id"))
 
         return build_api_response(
             success=True,
             data={
+                "company_name": ai_insights.get("company_name", ""),
                 "company": company,
                 "representatives": representatives,
                 "total_meetings": len(meetings_data),

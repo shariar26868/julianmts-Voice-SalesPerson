@@ -729,7 +729,7 @@ Return ONLY a valid JSON object matching exactly this structure:
             meetings_text = ""
             for i, m in enumerate(meetings_summary, 1):
                 meetings_text += (
-                    f"\nMeeting {i}: {m.get('meeting_goal', 'N/A')}"
+                    f"\nMeeting {i} (id:{m.get('meeting_id','?')}): goal={m.get('meeting_goal', 'N/A')}"
                     f" | Turns: {m.get('total_turns', 0)}"
                     f" | Talk ratio: {m.get('salesperson_talk_ratio', 0)}%"
                     f" | Questions: {m.get('questions_asked', 0)}"
@@ -737,19 +737,39 @@ Return ONLY a valid JSON object matching exactly this structure:
                 )
 
             company_info = company_data.get('company_data', {})
+            company_url = company_data.get('company_url', '')
+
             prompt = f"""You are a sales intelligence AI. Analyze these meetings and return account insights.
 
+COMPANY URL: {company_url}
 COMPANY: {company_info.get('industry', 'N/A')} | {company_info.get('company_size', 'N/A')} | Revenue: {company_info.get('revenue', 'N/A')}
 MEETINGS ({len(meetings_summary)} total): {meetings_text}
 
 Return ONLY valid JSON:
 {{
+    "company_name": "<extract from URL or use domain name, e.g. FastGrowth Inc.>",
     "average_engagement_score": <0-100>,
     "engagement_label": "<e.g. Excellent - Highly Engaged>",
     "sentiment_trend": "<improving|declining|stable>",
     "sentiment_trend_label": "<short description>",
     "risk_alerts": [{{"type": "warning|success", "message": "<text>"}}],
-    "upsell_opportunities": [{{"title": "<title>", "reason": "<why>"}}]
+    "upsell_opportunities": [{{"title": "<title>", "reason": "<why>"}}],
+    "meeting_scores": [
+        {{
+            "meeting_id": "<id from above>",
+            "score": <0-100>,
+            "label": "<e.g. Good Performance>"
+        }}
+    ],
+    "opportunities": [
+        {{
+            "name": "<opportunity name>",
+            "value": "<e.g. $125,000>",
+            "stage": "<e.g. Negotiation|Discovery|Proposal>",
+            "close_date": "<e.g. Mar 15, 2025>",
+            "probability": <0-100>
+        }}
+    ]
 }}"""
 
             response = await client.chat.completions.create(
@@ -763,12 +783,15 @@ Return ONLY valid JSON:
         except Exception as e:
             print(f"❌ Error generating account insights: {e}")
             return {
+                "company_name": "",
                 "average_engagement_score": 0,
                 "engagement_label": "No data",
                 "sentiment_trend": "stable",
                 "sentiment_trend_label": "Not enough data",
                 "risk_alerts": [],
-                "upsell_opportunities": []
+                "upsell_opportunities": [],
+                "meeting_scores": [],
+                "opportunities": []
             }
 
 openai_service = OpenAIService()
