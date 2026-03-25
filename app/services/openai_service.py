@@ -650,6 +650,7 @@ Your goal is to extract deep insights, MEDDIC criteria, sentiment, and scores.
 Return ONLY a valid JSON object matching exactly this structure:
 {{
     "overall_score": 85, // 0-100 integer
+    "summary": "A 2-3 sentence overview of the meeting's key outcomes.", // Concise meeting summary
     "meddic": {{
         "metrics": "...",
         "economic_buyer": "...",
@@ -714,6 +715,7 @@ Return ONLY a valid JSON object matching exactly this structure:
     def _empty_analytics(self) -> Dict[str, Any]:
         return {
             "overall_score": 0,
+            "summary": "",
             "meddic": {k: "Not enough data" for k in ["metrics", "economic_buyer", "decision_criteria", "decision_process", "identify_pain", "champion"]},
             "key_points": [], "next_steps": [], "sentiment": "Unknown", "sentiment_suggestion": "No data available to analyze.",
             "active_listening_grade": "N/A", "topics_discussed": [], "risks": [], "opportunities": []

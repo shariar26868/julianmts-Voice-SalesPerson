@@ -1120,6 +1120,10 @@ async def get_conversation_history(meeting_id: str, session_id: Optional[str] = 
             return build_api_response(success=True, data={"turns": [], "total_turns": 0,
                 "salesperson_talk_time": 0, "representatives_talk_time": 0})
         conv["id"] = str(conv.pop("_id"))
+        
+        # Add a convenience summary field at top level
+        conv["summary"] = conv.get("analytics", {}).get("summary", "")
+        
         return build_api_response(success=True, data=conv)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
