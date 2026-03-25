@@ -287,7 +287,11 @@ async def get_company_account_details(company_id: str):
 
         async for meeting in meeting_col.find({"company_id": company_id}):
             meeting_id = str(meeting["_id"])
-            conversation = await conversation_col.find_one({"meeting_id": meeting_id})
+            # Get the latest conversation session for this meeting
+            conversation = await conversation_col.find_one(
+                {"meeting_id": meeting_id},
+                sort=[("attempt_number", -1)]
+            )
 
             analytics = {
                 "total_turns": 0,
@@ -323,8 +327,11 @@ async def get_company_account_details(company_id: str):
                     "questions_asked": questions_asked,
                 }
 
+            session_id = conversation.get("session_id") if conversation else None
+
             meetings_data.append({
                 "meeting_id": meeting_id,
+                "session_id": session_id,
                 "meeting_goal": meeting.get("meeting_goal"),
                 "status": meeting.get("status"),
                 "created_at": str(meeting.get("created_at")),
@@ -334,6 +341,7 @@ async def get_company_account_details(company_id: str):
 
             meetings_summary.append({
                 "meeting_id": meeting_id,
+                "session_id": session_id,
                 "meeting_goal": meeting.get("meeting_goal"),
                 "created_at": str(meeting.get("created_at")),
                 "total_duration_seconds": meeting.get("total_duration_seconds", 0),

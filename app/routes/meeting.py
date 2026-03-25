@@ -3,7 +3,8 @@ from typing import List
 from app.models.schemas import MeetingCreate, MeetingResponse
 from app.config.database import (
     get_meeting_collection, get_salesperson_collection,
-    get_company_collection, get_representative_collection
+    get_company_collection, get_representative_collection,
+    get_conversation_collection
 )
 from app.services.openai_service import openai_service
 from app.utils.helpers import generate_id, current_timestamp, build_api_response
@@ -149,6 +150,14 @@ async def get_meeting(meeting_id: str):
         
         meeting["id"] = str(meeting.pop("_id"))
         meeting["representatives"] = representatives
+        
+        # Get the latest conversation session for this meeting
+        conversation_collection = get_conversation_collection()
+        conversation = await conversation_collection.find_one(
+            {"meeting_id": meeting_id},
+            sort=[("attempt_number", -1)]
+        )
+        meeting["session_id"] = conversation.get("session_id") if conversation else None
         
         return build_api_response(
             success=True,
