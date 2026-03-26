@@ -1091,13 +1091,21 @@ async def get_meeting_sessions(meeting_id: str):
         cursor = col.find({"meeting_id": meeting_id}, sort=[("attempt_number", -1)])
         sessions = []
         async for doc in cursor:
+            raw_s3_url = doc.get("recording_s3_url")
+            # Generate a pre-signed URL (7 days) so the client can access
+            # private S3 objects without getting AccessDenied errors.
+            presigned_url = None
+            if raw_s3_url:
+                presigned_url = s3_service.generate_presigned_url(
+                    raw_s3_url, expiration=604800  # 7 days
+                )
             sessions.append({
                 "session_id":       doc.get("session_id"),
                 "attempt_number":   doc.get("attempt_number", 1),
                 "total_turns":      doc.get("total_turns", 0),
                 "created_at":       doc.get("created_at"),
-                # Permanent S3 link (available once background task finishes)
-                "recording_s3_url": doc.get("recording_s3_url"),
+                # Pre-signed URL (valid 7 days). null until background task finishes.
+                "recording_s3_url": presigned_url,
                 # Fallback streaming endpoint (merges on-the-fly)
                 "recording_url":    f"/api/conversation/{meeting_id}/recording?session_id={doc.get('session_id')}",
                 "history_url":      f"/api/conversation/{meeting_id}/history?session_id={doc.get('session_id')}",
@@ -1126,8 +1134,15 @@ async def get_conversation_history(meeting_id: str, session_id: Optional[str] = 
 
         # Convenience fields at top level
         conv["summary"] = conv.get("analytics", {}).get("summary", "")
-        # Expose permanent S3 recording link if already generated
-        conv["recording_s3_url"] = conv.get("recording_s3_url")
+
+        # Convert stored raw S3 URL to a pre-signed URL (7 days)
+        raw_s3_url = conv.get("recording_s3_url")
+        if raw_s3_url:
+            conv["recording_s3_url"] = s3_service.generate_presigned_url(
+                raw_s3_url, expiration=604800  # 7 days
+            )
+        else:
+            conv["recording_s3_url"] = None
 
         return build_api_response(success=True, data=conv)
     except Exception as e:
