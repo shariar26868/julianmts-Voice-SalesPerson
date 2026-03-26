@@ -1092,12 +1092,15 @@ async def get_meeting_sessions(meeting_id: str):
         sessions = []
         async for doc in cursor:
             sessions.append({
-                "session_id":    doc.get("session_id"),
-                "attempt_number": doc.get("attempt_number", 1),
-                "total_turns":   doc.get("total_turns", 0),
-                "created_at":    doc.get("created_at"),
-                "recording_url": f"/api/conversation/{meeting_id}/recording?session_id={doc.get('session_id')}",
-                "history_url":   f"/api/conversation/{meeting_id}/history?session_id={doc.get('session_id')}",
+                "session_id":       doc.get("session_id"),
+                "attempt_number":   doc.get("attempt_number", 1),
+                "total_turns":      doc.get("total_turns", 0),
+                "created_at":       doc.get("created_at"),
+                # Permanent S3 link (available once background task finishes)
+                "recording_s3_url": doc.get("recording_s3_url"),
+                # Fallback streaming endpoint (merges on-the-fly)
+                "recording_url":    f"/api/conversation/{meeting_id}/recording?session_id={doc.get('session_id')}",
+                "history_url":      f"/api/conversation/{meeting_id}/history?session_id={doc.get('session_id')}",
             })
         return build_api_response(success=True, data={"sessions": sessions, "total": len(sessions)})
     except Exception as e:
@@ -1120,10 +1123,12 @@ async def get_conversation_history(meeting_id: str, session_id: Optional[str] = 
             return build_api_response(success=True, data={"turns": [], "total_turns": 0,
                 "salesperson_talk_time": 0, "representatives_talk_time": 0})
         conv["id"] = str(conv.pop("_id"))
-        
-        # Add a convenience summary field at top level
+
+        # Convenience fields at top level
         conv["summary"] = conv.get("analytics", {}).get("summary", "")
-        
+        # Expose permanent S3 recording link if already generated
+        conv["recording_s3_url"] = conv.get("recording_s3_url")
+
         return build_api_response(success=True, data=conv)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1287,15 +1292,64 @@ async def _generate_and_save_analytics(session_id: str):
             "questions_asked": sum(1 for t in conv["turns"] if t["speaker"] == "salesperson" and "?" in t["text"])
         })
         
-        # Save back to database
+        # Save analytics back to database
         await conv_col.update_one(
             {"session_id": session_id},
             {"$set": {"analytics": analytics_result}}
         )
         print(f"✅ AI Analytics completed and saved for session {session_id}")
-        
+
     except Exception as e:
         print(f"❌ Background analytics error for {session_id}: {e}")
+        import traceback; traceback.print_exc()
+
+    # ── Full recording upload (runs regardless of analytics success) ──────────
+    try:
+        conv = await conv_col.find_one({"session_id": session_id})
+        if not conv:
+            return
+
+        turns = conv.get("turns", [])
+        meeting_id = conv.get("meeting_id")
+        sorted_turns = sorted(turns, key=lambda t: t.get("turn_number", 0))
+        audio_urls = [t["audio_url"] for t in sorted_turns if t.get("audio_url")]
+
+        if not audio_urls:
+            print(f"⚠️ No audio URLs — skipping full recording upload for {session_id}")
+            return
+
+        print(f"🎞️ Merging {len(audio_urls)} segments for full recording ({session_id})...")
+        merged = io.BytesIO()
+        downloaded = 0
+        for url in audio_urls:
+            chunk = await s3_service.download_file(url)
+            if chunk:
+                merged.write(chunk)
+                downloaded += 1
+
+        if downloaded == 0:
+            print(f"⚠️ Could not download any audio segments — skipping full recording upload")
+            return
+
+        merged_bytes = merged.getvalue()
+        print(f"✅ Merged {downloaded}/{len(audio_urls)} segments — {len(merged_bytes)} bytes")
+
+        recording_url = await s3_service.upload_full_meeting_audio(
+            audio_bytes=merged_bytes,
+            meeting_id=meeting_id
+        )
+
+        if recording_url:
+            await conv_col.update_one(
+                {"session_id": session_id},
+                {"$set": {"recording_s3_url": recording_url}}
+            )
+            print(f"✅ Full recording uploaded: {recording_url}")
+        else:
+            print(f"⚠️ S3 upload returned None for full recording ({session_id})")
+
+    except Exception as e:
+        print(f"❌ Full recording upload error for {session_id}: {e}")
         import traceback; traceback.print_exc()
 
 

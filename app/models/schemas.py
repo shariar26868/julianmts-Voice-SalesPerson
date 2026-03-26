@@ -405,6 +405,7 @@ class ConversationResponse(BaseModel):
     salesperson_talk_time: float
     representatives_talk_time: float
     total_duration: float
+    recording_s3_url: Optional[str] = None  # Permanent S3 link, set after session ends
 
 
 class AIResponse(BaseModel):
