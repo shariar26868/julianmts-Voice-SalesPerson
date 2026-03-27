@@ -1133,7 +1133,12 @@ async def get_conversation_history(meeting_id: str, session_id: Optional[str] = 
         conv["id"] = str(conv.pop("_id"))
 
         # Convenience fields at top level
-        conv["summary"] = conv.get("analytics", {}).get("summary", "")
+        analytics_data = conv.get("analytics", {})
+        conv["summary"] = analytics_data.get("summary", "")
+        conv["engagement_score"] = analytics_data.get("engagement_score", 0)
+        conv["questions_asked"] = analytics_data.get("questions_asked", 0)
+        conv["open_questions"] = analytics_data.get("open_questions", 0)
+        conv["active_listening_grade"] = analytics_data.get("active_listening_grade", "N/A")
 
         # Convert stored raw S3 URL to a pre-signed URL (7 days)
         raw_s3_url = conv.get("recording_s3_url")
