@@ -1303,8 +1303,7 @@ async def _generate_and_save_analytics(session_id: str):
                     "representatives_talk_time": conv.get("representatives_talk_time", 0),
                     "total_duration": total_time,
                     "salesperson_talk_ratio": sp_ratio,
-                    "representatives_talk_ratio": ai_ratio,
-                    "questions_asked": sum(1 for t in conv["turns"] if t["speaker"] == "salesperson" and "?" in t["text"])
+                    "representatives_talk_ratio": ai_ratio
                 })
                 
                 # Save analytics back to database

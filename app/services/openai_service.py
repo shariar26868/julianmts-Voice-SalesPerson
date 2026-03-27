@@ -650,6 +650,7 @@ Your goal is to extract deep insights, MEDDIC criteria, sentiment, and scores.
 Return ONLY a valid JSON object matching exactly this structure:
 {{
     "overall_score": 85, // 0-100 integer
+    "engagement_score": 78, // 0-100 integer representing how engaging the salesperson was
     "summary": "A 2-3 sentence overview of the meeting's key outcomes.", // Concise meeting summary
     "meddic": {{
         "metrics": "...",
@@ -661,24 +662,24 @@ Return ONLY a valid JSON object matching exactly this structure:
     }},
     "key_points": [
         "Point 1",
-        "Point 2",
-        "Point 3"
+        "Point 2"
     ],
     "next_steps": [
-        "Step 1",
-        "Step 2"
+        "Step 1"
     ],
     "sentiment": "Positive", // "Positive", "Neutral", "Negative"
     "sentiment_suggestion": "...", // Brief advice based on sentiment
-    "active_listening_grade": "A-", // "A+", "A", "A-", "B+", "B", "C", "D"
+    "active_listening_grade": "A+", // "A+", "A", "A-", "B+", "B", "C", "D"
+    "questions_asked": 18, // Total number of questions the salesperson asked
+    "open_questions": 14, // Number of open-ended questions the salesperson asked out of the total
     "topics_discussed": [
-        "Pricing", "Implementation", "Security"
+        "Pricing", "Implementation"
     ],
     "risks": [
-        "Risk 1", "Risk 2"
+        "Risk 1"
     ],
     "opportunities": [
-        "Opportunity 1", "Opportunity 2"
+        "Opportunity 1"
     ]
 }}
 """
@@ -715,10 +716,12 @@ Return ONLY a valid JSON object matching exactly this structure:
     def _empty_analytics(self) -> Dict[str, Any]:
         return {
             "overall_score": 0,
+            "engagement_score": 0,
             "summary": "",
             "meddic": {k: "Not enough data" for k in ["metrics", "economic_buyer", "decision_criteria", "decision_process", "identify_pain", "champion"]},
             "key_points": [], "next_steps": [], "sentiment": "Unknown", "sentiment_suggestion": "No data available to analyze.",
-            "active_listening_grade": "N/A", "topics_discussed": [], "risks": [], "opportunities": []
+            "active_listening_grade": "N/A", "questions_asked": 0, "open_questions": 0, 
+            "topics_discussed": [], "risks": [], "opportunities": []
         }
 
     async def generate_account_insights(
