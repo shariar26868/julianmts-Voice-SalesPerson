@@ -1274,45 +1274,48 @@ async def _generate_and_save_analytics(session_id: str):
             
         print(f"📊 Starting background AI analytics for session {session_id}...")
         
-        # Fetch related data for context
-        meeting_id = conv["meeting_id"]
-        meeting = await get_meeting_collection().find_one({"_id": meeting_id})
-        if not meeting: return
-        
-        salesperson = await get_salesperson_collection().find_one({"_id": meeting["salesperson_id"]})
-        company = await get_company_collection().find_one({"_id": meeting["company_id"]})
-        
-        # Generate complex AI analytics
-        analytics_result = await openai_service.generate_conversation_analytics(
-            conversation_history=conv["turns"],
-            salesperson_data=salesperson or {},
-            company_data=company or {}
-        )
-        
-        # Calculate talk time ratios
-        total_time = conv.get("salesperson_talk_time", 0) + conv.get("representatives_talk_time", 0)
-        sp_ratio = round(conv.get("salesperson_talk_time", 0) / total_time * 100, 2) if total_time else 0
-        ai_ratio = round(conv.get("representatives_talk_time", 0) / total_time * 100, 2) if total_time else 0
-        
-        # Combine basic stats with AI insights
-        analytics_result.update({
-            "total_turns": conv.get("total_turns", 0),
-            "salesperson_turns": len([t for t in conv["turns"] if t["speaker"] == "salesperson"]),
-            "ai_turns": len([t for t in conv["turns"] if t["speaker"] != "salesperson"]),
-            "salesperson_talk_time": conv.get("salesperson_talk_time", 0),
-            "representatives_talk_time": conv.get("representatives_talk_time", 0),
-            "total_duration": total_time,
-            "salesperson_talk_ratio": sp_ratio,
-            "representatives_talk_ratio": ai_ratio,
-            "questions_asked": sum(1 for t in conv["turns"] if t["speaker"] == "salesperson" and "?" in t["text"])
-        })
-        
-        # Save analytics back to database
-        await conv_col.update_one(
-            {"session_id": session_id},
-            {"$set": {"analytics": analytics_result}}
-        )
-        print(f"✅ AI Analytics completed and saved for session {session_id}")
+        try:
+            # Fetch related data for context
+            meeting_id = conv["meeting_id"]
+            meeting = await get_meeting_collection().find_one({"_id": meeting_id})
+            if meeting:
+                salesperson = await get_salesperson_collection().find_one({"_id": meeting["salesperson_id"]})
+                company = await get_company_collection().find_one({"_id": meeting["company_id"]})
+                
+                # Generate complex AI analytics
+                analytics_result = await openai_service.generate_conversation_analytics(
+                    conversation_history=conv["turns"],
+                    salesperson_data=salesperson or {},
+                    company_data=company or {}
+                )
+                
+                # Calculate talk time ratios
+                total_time = conv.get("salesperson_talk_time", 0) + conv.get("representatives_talk_time", 0)
+                sp_ratio = round(conv.get("salesperson_talk_time", 0) / total_time * 100, 2) if total_time else 0
+                ai_ratio = round(conv.get("representatives_talk_time", 0) / total_time * 100, 2) if total_time else 0
+                
+                # Combine basic stats with AI insights
+                analytics_result.update({
+                    "total_turns": conv.get("total_turns", 0),
+                    "salesperson_turns": len([t for t in conv["turns"] if t["speaker"] == "salesperson"]),
+                    "ai_turns": len([t for t in conv["turns"] if t["speaker"] != "salesperson"]),
+                    "salesperson_talk_time": conv.get("salesperson_talk_time", 0),
+                    "representatives_talk_time": conv.get("representatives_talk_time", 0),
+                    "total_duration": total_time,
+                    "salesperson_talk_ratio": sp_ratio,
+                    "representatives_talk_ratio": ai_ratio,
+                    "questions_asked": sum(1 for t in conv["turns"] if t["speaker"] == "salesperson" and "?" in t["text"])
+                })
+                
+                # Save analytics back to database
+                await conv_col.update_one(
+                    {"session_id": session_id},
+                    {"$set": {"analytics": analytics_result}}
+                )
+                print(f"✅ AI Analytics completed and saved for session {session_id}")
+        except Exception as e:
+            print(f"❌ Background analytics generation error for {session_id}: {e}")
+            import traceback; traceback.print_exc()
 
     except Exception as e:
         print(f"❌ Background analytics error for {session_id}: {e}")
@@ -1333,21 +1336,64 @@ async def _generate_and_save_analytics(session_id: str):
             print(f"⚠️ No audio URLs — skipping full recording upload for {session_id}")
             return
 
-        print(f"🎞️ Merging {len(audio_urls)} segments for full recording ({session_id})...")
-        merged = io.BytesIO()
-        downloaded = 0
-        for url in audio_urls:
-            chunk = await s3_service.download_file(url)
-            if chunk:
-                merged.write(chunk)
-                downloaded += 1
+        print(f"🎞️ Extracting {len(audio_urls)} segments for full recording ({session_id})...")
+        import tempfile
+        import os
+        import subprocess
+        import imageio_ffmpeg
+        
+        temp_files = []
+        out_file = None
+        
+        try:
+            # Download chunks to temp files
+            for url in audio_urls:
+                chunk = await s3_service.download_file(url)
+                if chunk:
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.tmp')
+                    tmp.write(chunk)
+                    tmp.close()
+                    temp_files.append(tmp.name)
 
-        if downloaded == 0:
-            print(f"⚠️ Could not download any audio segments — skipping full recording upload")
-            return
+            if not temp_files:
+                print(f"⚠️ Could not download any audio segments — skipping full recording upload")
+                return
 
-        merged_bytes = merged.getvalue()
-        print(f"✅ Merged {downloaded}/{len(audio_urls)} segments — {len(merged_bytes)} bytes")
+            print(f"✅ Downloaded {len(temp_files)}/{len(audio_urls)} segments. Merging via FFMPEG...")
+            
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+            cmd = [ffmpeg_exe, "-y"]
+            
+            # Simple handling for single file vs multiple
+            if len(temp_files) == 1:
+                cmd.extend(["-i", temp_files[0], "-c:a", "libmp3lame", "-b:a", "128k"])
+                out_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3').name
+                cmd.append(out_file)
+            else:
+                for f in temp_files:
+                    cmd.extend(["-i", f])
+                    
+                filter_str = "".join([f"[{i}:a]" for i in range(len(temp_files))])
+                filter_str += f"concat=n={len(temp_files)}:v=0:a=1[out]"
+                cmd.extend(["-filter_complex", filter_str, "-map", "[out]"])
+                cmd.extend(["-c:a", "libmp3lame", "-b:a", "128k"])
+                out_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3').name
+                cmd.append(out_file)
+                
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode != 0:
+                raise Exception(f"FFMPEG failed: {res.stderr}")
+                
+            with open(out_file, 'rb') as f:
+                merged_bytes = f.read()
+                
+            print(f"✅ Merge successful — {len(merged_bytes)} bytes")
+            
+        finally:
+            for f in temp_files:
+                if os.path.exists(f): os.remove(f)
+            if out_file and os.path.exists(out_file):
+                os.remove(out_file)
 
         recording_url = await s3_service.upload_full_meeting_audio(
             audio_bytes=merged_bytes,

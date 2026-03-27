@@ -23,6 +23,7 @@ httpx==0.26.0
 
 # Audio Processing
 pydub==0.25.1
+imageio-ffmpeg==0.6.0
 
 # Utilities
 python-jose[cryptography]==3.3.0
