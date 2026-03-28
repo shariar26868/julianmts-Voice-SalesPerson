@@ -242,6 +242,30 @@ async def delete_salesperson_data(salesperson_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/ai-insights", response_model=dict)
+async def get_latest_salesperson_ai_insights():
+    """
+    Get dynamic aggregate AI insights for the latest salesperson.
+    Useful when the client doesn't have the salesperson_id handy.
+    """
+    try:
+        salesperson_col = get_salesperson_collection()
+        # Find the most recently updated salesperson
+        salesperson = await salesperson_col.find_one({}, sort=[("updated_at", -1)])
+        
+        if not salesperson:
+            raise HTTPException(status_code=404, detail="No salesperson profiles found")
+            
+        salesperson_id = str(salesperson["_id"])
+        # Reuse the existing logic
+        return await get_salesperson_ai_insights(salesperson_id)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error in get_latest_salesperson_ai_insights: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/{salesperson_id}/ai-insights", response_model=dict)
 async def get_salesperson_ai_insights(salesperson_id: str):
     """
