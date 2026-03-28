@@ -2,7 +2,11 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request
 from typing import List, Optional, Annotated
 from pydantic import BaseModel
 from app.models.schemas import SalespersonCreate, SalespersonResponse, ProductMaterial
-from app.config.database import get_salesperson_collection
+from app.config.database import (
+    get_salesperson_collection, get_meeting_collection,
+    get_conversation_collection
+)
+from app.services.openai_service import openai_service
 from app.services.s3_service import s3_service
 from app.utils.helpers import (
     generate_id, current_timestamp, validate_file_type,
@@ -236,4 +240,70 @@ async def delete_salesperson_data(salesperson_id: str):
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/{salesperson_id}/ai-insights", response_model=dict)
+async def get_salesperson_ai_insights(salesperson_id: str):
+    """
+    Get dynamic aggregate AI insights for a salesperson.
+    Analyzes performance across all completed meetings.
+    """
+    try:
+        salesperson_col = get_salesperson_collection()
+        salesperson = await salesperson_col.find_one({"_id": salesperson_id})
+        if not salesperson:
+            raise HTTPException(status_code=404, detail="Salesperson not found")
+
+        meeting_col = get_meeting_collection()
+        conversation_col = get_conversation_collection()
+
+        meetings_summary = []
+        async for meeting in meeting_col.find({"salesperson_id": salesperson_id}):
+            meeting_id = str(meeting["_id"])
+            
+            # Get the latest conversation/analytics for this meeting
+            conv = await conversation_col.find_one(
+                {"meeting_id": meeting_id},
+                sort=[("attempt_number", -1)]
+            )
+            
+            if conv and "analytics" in conv:
+                analytics = conv["analytics"]
+                meetings_summary.append({
+                    "meeting_id": meeting_id,
+                    "meeting_goal": meeting.get("meeting_goal"),
+                    "score": analytics.get("overall_score", 0),
+                    "questions_asked": analytics.get("questions_asked", 0),
+                    "open_questions": analytics.get("open_questions", 0),
+                    "engagement_score": analytics.get("engagement_score", 0)
+                })
+
+        if not meetings_summary:
+            return build_api_response(
+                success=True,
+                data={
+                    "strength": "Not enough data yet.",
+                    "improvement": "Complete your first few practice sessions to see insights.",
+                    "pattern": "Analyzing your performance trends."
+                },
+                message="No meeting data found for insights."
+            )
+
+        # Generate aggregate insights via OpenAI
+        insights = await openai_service.generate_salesperson_insights(
+            salesperson_data=salesperson,
+            meetings_summary=meetings_summary
+        )
+
+        return build_api_response(
+            success=True,
+            data=insights,
+            message="Salesperson insights generated successfully"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error in get_salesperson_ai_insights: {e}")
+        import traceback; traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

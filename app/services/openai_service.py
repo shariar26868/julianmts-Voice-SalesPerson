@@ -818,4 +818,49 @@ Return ONLY valid JSON:
                 "opportunities": []
             }
 
+    async def generate_salesperson_insights(
+        self,
+        salesperson_data: Dict[str, Any],
+        meetings_summary: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Generate high-level coach insights for a salesperson across all meetings"""
+        try:
+            meetings_text = ""
+            for i, m in enumerate(meetings_summary, 1):
+                meetings_text += (
+                    f"\nMeeting {i}: goal={m.get('meeting_goal', 'N/A')}"
+                    f" | Score: {m.get('score', 0)}"
+                    f" | Questions: {m.get('questions_asked', 0)}"
+                    f" | Open Questions: {m.get('open_questions', 0)}"
+                    f" | Engagement: {m.get('engagement_score', 0)}"
+                )
+
+            prompt = f"""You are a Sales Coach AI. Analyze these meetings for salesperson {salesperson_data.get('name', 'Unknown')}.
+            
+PRODUCT: {salesperson_data.get('product_name', 'N/A')}
+MEETINGS ({len(meetings_summary)} total): {meetings_text}
+
+Return ONLY valid JSON with exactly these 3 fields:
+{{
+    "strength": "A powerful 1-sentence observation about what they do well consistently.",
+    "improvement": "A 1-sentence actionable area for improvement with specific metrics if possible.",
+    "pattern": "A 1-sentence recurring behavior or trend observed across multiple meetings."
+}}"""
+
+            response = await client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                response_format={"type": "json_object"}
+            )
+            return json.loads(response.choices[0].message.content)
+
+        except Exception as e:
+            print(f"❌ Error generating salesperson insights: {e}")
+            return {
+                "strength": "Not enough data yet.",
+                "improvement": "Keep practicing more sessions.",
+                "pattern": "Analyzing your performance trends."
+            }
+
 openai_service = OpenAIService()
