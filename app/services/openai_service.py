@@ -651,6 +651,7 @@ Return ONLY a valid JSON object matching exactly this structure:
 {{
     "overall_score": 85, // 0-100 integer
     "engagement_score": 78, // 0-100 integer representing how engaging the salesperson was
+    "preparation_score": 84, // 0-100 integer representing how well prepared the salesperson seemed (based on goal alignment, opening, and research)
     "summary": "A 2-3 sentence overview of the meeting's key outcomes.", // Concise meeting summary
     "meddic": {{
         "metrics": "...",
@@ -722,6 +723,7 @@ Return ONLY a valid JSON object matching exactly this structure:
         return {
             "overall_score": 0,
             "engagement_score": 0,
+            "preparation_score": 0,
             "summary": "",
             "meddic": {k: "Not enough data" for k in ["metrics", "economic_buyer", "decision_criteria", "decision_process", "identify_pain", "champion"]},
             "key_points": [], "next_steps": [], "sentiment": "Unknown", "sentiment_suggestion": "No data available to analyze.",

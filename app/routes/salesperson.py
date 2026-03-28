@@ -282,9 +282,44 @@ async def get_salesperson_ai_insights(salesperson_id: str):
         conversation_col = get_conversation_collection()
 
         meetings_summary = []
+        unique_people = set()
+        total_score = 0
+        success_count = 0
+        total_talk_ratio = 0
+        total_prep_score = 0
+        meetings_with_analytics = 0
+
+        talk_ratio_by_type = {
+            "Discovery": {"talk_total": 0, "count": 0},
+            "Demo": {"talk_total": 0, "count": 0},
+            "Closing": {"talk_total": 0, "count": 0},
+            "Follow-up": {"talk_total": 0, "count": 0}
+        }
+
         async for meeting in meeting_col.find({"salesperson_id": salesperson_id}):
             meeting_id = str(meeting["_id"])
+            goal = meeting.get("meeting_goal", "").lower()
             
+            # Categorize meeting type based on goal keywords
+            m_type = "Discovery" # Default
+            if any(k in goal for k in ["demo", "presentation", "showcase"]):
+                m_type = "Demo"
+            elif any(k in goal for k in ["closing", "close", "sign", "contract", "finalize"]):
+                m_type = "Closing"
+            elif any(k in goal for k in ["follow-up", "follow up", "next steps", "check-in"]):
+                m_type = "Follow-up"
+            elif any(k in goal for k in ["discovery", "explore", "qualification", "discovery call"]):
+                m_type = "Discovery"
+            
+            # Add representatives to unique people met
+            for rep in meeting.get("representatives", []):
+                if isinstance(rep, dict):
+                    unique_people.add(rep.get("name"))
+                else:
+                    # If it's just an ID, we might need to fetch the rep name 
+                    # but for simplicity let's assume names are either in reps or we can skip IDs
+                    pass
+
             # Get the latest conversation/analytics for this meeting
             conv = await conversation_col.find_one(
                 {"meeting_id": meeting_id},
@@ -293,14 +328,62 @@ async def get_salesperson_ai_insights(salesperson_id: str):
             
             if conv and "analytics" in conv:
                 analytics = conv["analytics"]
+                meetings_with_analytics += 1
+                
+                score = analytics.get("overall_score", 0)
+                total_score += score
+                if score >= 70:
+                    success_count += 1
+                
+                total_prep_score += analytics.get("preparation_score", 0)
+                
+                # Calculate talk ratio for this meeting
+                sales_time = conv.get("salesperson_talk_time", 0)
+                total_dur = conv.get("total_duration", 0)
+                if total_dur > 0:
+                    ratio = (sales_time / total_dur) * 100
+                    total_talk_ratio += ratio
+                    
+                    if m_type in talk_ratio_by_type:
+                        talk_ratio_by_type[m_type]["talk_total"] += ratio
+                        talk_ratio_by_type[m_type]["count"] += 1
+
                 meetings_summary.append({
                     "meeting_id": meeting_id,
                     "meeting_goal": meeting.get("meeting_goal"),
-                    "score": analytics.get("overall_score", 0),
+                    "type": m_type,
+                    "score": score,
                     "questions_asked": analytics.get("questions_asked", 0),
                     "open_questions": analytics.get("open_questions", 0),
                     "engagement_score": analytics.get("engagement_score", 0)
                 })
+
+        # Calculate averages for dashboard stats
+        total_meetings = len(meetings_summary)
+        people_met = len(unique_people)
+        success_rate = (success_count / total_meetings * 100) if total_meetings > 0 else 0
+        
+        avg_talk_ratio = (total_talk_ratio / meetings_with_analytics) if meetings_with_analytics > 0 else 50
+        avg_listen_ratio = 100 - avg_talk_ratio
+        
+        avg_prep_score = (total_prep_score / meetings_with_analytics) if meetings_with_analytics > 0 else 0
+
+        dashboard_stats = {
+            "total_meetings": total_meetings,
+            "people_met": people_met,
+            "success_rate": round(success_rate, 1),
+            "talk_to_listen_ratio": f"{round(avg_talk_ratio)}/{round(avg_listen_ratio)}",
+            "average_preparation_time": round(avg_prep_score) # Named as "time" to match UI card but it's a score out of 100
+        }
+
+        # Format talk ratio breakdown by type
+        ratio_breakdown = {}
+        for m_type, stats in talk_ratio_by_type.items():
+            if stats["count"] > 0:
+                avg_talk = stats["talk_total"] / stats["count"]
+                ratio_breakdown[m_type] = f"{round(avg_talk)}% / {round(100 - avg_talk)}%"
+            else:
+                ratio_breakdown[m_type] = "N/A"
 
         if not meetings_summary:
             return build_api_response(
@@ -308,7 +391,9 @@ async def get_salesperson_ai_insights(salesperson_id: str):
                 data={
                     "strength": "Not enough data yet.",
                     "improvement": "Complete your first few practice sessions to see insights.",
-                    "pattern": "Analyzing your performance trends."
+                    "pattern": "Analyzing your performance trends.",
+                    "dashboard_stats": dashboard_stats,
+                    "talk_ratio_by_type": ratio_breakdown
                 },
                 message="No meeting data found for insights."
             )
@@ -318,6 +403,10 @@ async def get_salesperson_ai_insights(salesperson_id: str):
             salesperson_data=salesperson,
             meetings_summary=meetings_summary
         )
+        
+        # Add stats and breakdown to the final response
+        insights["dashboard_stats"] = dashboard_stats
+        insights["talk_ratio_by_type"] = ratio_breakdown
 
         return build_api_response(
             success=True,
