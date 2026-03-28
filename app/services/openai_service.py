@@ -680,7 +680,12 @@ Return ONLY a valid JSON object matching exactly this structure:
     ],
     "opportunities": [
         "Opportunity 1"
-    ]
+    ],
+    "ai_insights": {
+        "strength": "One specific thing the salesperson did well (1 sentence).",
+        "improvement": "One specific area for improvement (1 sentence).",
+        "pattern": "A recurring behavior or trend observed in this meeting (1 sentence)."
+    }
 }}
 """
             messages = [
@@ -721,7 +726,12 @@ Return ONLY a valid JSON object matching exactly this structure:
             "meddic": {k: "Not enough data" for k in ["metrics", "economic_buyer", "decision_criteria", "decision_process", "identify_pain", "champion"]},
             "key_points": [], "next_steps": [], "sentiment": "Unknown", "sentiment_suggestion": "No data available to analyze.",
             "active_listening_grade": "N/A", "questions_asked": 0, "open_questions": 0, 
-            "topics_discussed": [], "risks": [], "opportunities": []
+            "topics_discussed": [], "risks": [], "opportunities": [],
+            "ai_insights": {
+                "strength": "N/A",
+                "improvement": "N/A",
+                "pattern": "N/A"
+            }
         }
 
     async def generate_account_insights(

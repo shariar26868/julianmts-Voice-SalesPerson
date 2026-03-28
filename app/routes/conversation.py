@@ -1139,6 +1139,11 @@ async def get_conversation_history(meeting_id: str, session_id: Optional[str] = 
         conv["questions_asked"] = analytics_data.get("questions_asked", 0)
         conv["open_questions"] = analytics_data.get("open_questions", 0)
         conv["active_listening_grade"] = analytics_data.get("active_listening_grade", "N/A")
+        conv["ai_insights"] = analytics_data.get("ai_insights", {
+            "strength": "N/A",
+            "improvement": "N/A",
+            "pattern": "N/A"
+        })
 
         # Convert stored raw S3 URL to a pre-signed URL (7 days)
         raw_s3_url = conv.get("recording_s3_url")
