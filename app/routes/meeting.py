@@ -181,13 +181,13 @@ async def start_meeting(meeting_id: str):
         if not meeting:
             raise HTTPException(status_code=404, detail="Meeting not found")
         
-        if meeting["status"] != "pending":
+        if meeting["status"] == "active":
             raise HTTPException(
                 status_code=400,
-                detail=f"Meeting is already {meeting['status']}"
+                detail="Meeting is already active"
             )
         
-        # Update status to active
+        # Update status to active (works from both pending and completed)
         await meeting_collection.update_one(
             {"_id": meeting_id},
             {
