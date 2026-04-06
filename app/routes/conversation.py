@@ -1541,137 +1541,130 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     }
                     conv_history.append(salesperson_turn)
                     
-                    # AI response
-                    try:
-                        ai_data = await openai_service.generate_multi_agent_response(
-                            conversation_history=conv_history,
-                            representatives=representatives,
-                            salesperson_data=salesperson,
-                            company_data=company,
-                            current_message=transcribed,
-                            speaker="salesperson"
-                        )
-                    except Exception as e:
-                        print(f"❌ OpenAI error: {e}")
-                        ai_data = {
-                            "primary_rep_id": representatives[0]["id"],
-                            "primary_rep_name": representatives[0]["name"],
-                            "primary_response": "I understand. Could you tell me more?",
-                            "secondary_rep_id": None, "secondary_rep_name": None, "secondary_response": None,
-                            "reasoning": "Fallback"
-                        }
+                    # --- STREAMING PIPELINE START ---
                     
-                    # Find primary rep
-                    primary_rep = None
+                    # Single call: identify responder + stream response together
+                    # First, pick responder from last turn rotation (no extra API call)
+                    last_speaker_id = None
+                    for t in reversed(conv_history):
+                        if t.get("speaker") != "salesperson":
+                            last_speaker_id = t.get("speaker")
+                            break
+
+                    # Pick primary rep (rotate away from last speaker)
+                    primary_rep = representatives[0]
+                    if last_speaker_id and len(representatives) > 1:
+                        for rep in representatives:
+                            if rep.get("id") != last_speaker_id:
+                                primary_rep = rep
+                                break
+
+                    # Check if salesperson addressed someone by name/role
+                    msg_lower = transcribed.lower()
                     for rep in representatives:
-                        if rep["id"] == ai_data.get("primary_rep_id"):
-                            primary_rep = rep; break
-                    if not primary_rep:
-                        primary_rep = representatives[0]
-                    
-                    primary_text = ai_data.get("primary_response", "I understand.")
-                    primary_turn_number = current_turn + 1
-                    
-                    # Send primary text immediately
+                        if rep.get("name", "").lower() in msg_lower or rep.get("role", "").lower() in msg_lower:
+                            primary_rep = rep
+                            break
+                        
                     await websocket.send_json({
-                        "type": "ai_response_text",
-                        "text": primary_text,
-                        "speaker_id": primary_rep["id"],
-                        "speaker_name": primary_rep["name"],
-                        "speaker_role": primary_rep["role"],
-                        "is_primary": True
+                        "type": "ai_thinking",
+                        "message": f"{primary_rep['name']} is preparing to speak..."
                     })
                     
-                    # Primary TTS
-                    v_id, personality = await _get_rep_voice_and_personality(primary_rep)
-                    primary_audio = await _generate_audio(primary_text, v_id, personality)
-                    
-                    # Upload primary audio to S3 for recording
-                    primary_audio_url = await _upload_audio(
-                        primary_audio, meeting_id, primary_turn_number, primary_rep["id"]
+                    # 2. Get stream generator from OpenAI
+                    token_stream = openai_service.stream_response(
+                        conversation_history=conv_history,
+                        representatives=representatives,
+                        salesperson_data=salesperson,
+                        company_data=company,
+                        current_message=transcribed,
+                        primary_rep=primary_rep
                     )
                     
-                    primary_turn = {
-                        "turn_number": primary_turn_number, "speaker": primary_rep["id"],
-                        "speaker_name": primary_rep["name"], "text": primary_text,
-                        "audio_url": primary_audio_url,
-                        "timestamp": format_duration(len(conv_history) * 10),
-                        "duration_seconds": 6.0, "created_at": current_timestamp()
-                    }
+                    # 3. Pipe directly into ElevenLabs WebSocket stream
+                    # OpenAI tokens → ElevenLabs WS → audio chunks → client
+                    v_id, personality = await _get_rep_voice_and_personality(primary_rep)
+                    audio_stream = elevenlabs_service.stream_tts_websocket(
+                        token_stream=token_stream,
+                        voice_id=v_id,
+                        personality=personality
+                    )
                     
-                    # Send primary audio
-                    if primary_audio:
+                    full_text = ""
+                    full_audio_bytes = b""
+                    chunk_no = 0
+                    
+                    print(f"🚀 Starting stream to frontend for {primary_rep['name']}...")
+                    
+                    # Iterate the audio stream yielding (sentence, audio_bytes)
+                    async for sentence, audio_bytes in audio_stream:
+                        chunk_no += 1
+                        full_text += sentence + " "
+                        if audio_bytes:
+                            full_audio_bytes += audio_bytes
+                        
+                        # Send text chunk
                         await websocket.send_json({
-                            "type": "ai_audio_complete",
-                            "audio_data": base64.b64encode(primary_audio).decode(),
-                            "audio_mime_type": "audio/mpeg",
+                            "type": "ai_response_text",
+                            "text": sentence,
                             "speaker_id": primary_rep["id"],
                             "speaker_name": primary_rep["name"],
                             "speaker_role": primary_rep["role"],
                             "is_primary": True,
-                            "is_final": not bool(ai_data.get("secondary_response"))
-                        })
-                    
-                    # Secondary rep
-                    secondary_rep  = None
-                    secondary_text = ai_data.get("secondary_response")
-                    secondary_turn = None
-                    secondary_audio = b""
-                    secondary_turn_number = primary_turn_number + 1
-                    
-                    if secondary_text and ai_data.get("secondary_rep_id"):
-                        for rep in representatives:
-                            if rep["id"] == ai_data["secondary_rep_id"]:
-                                secondary_rep = rep; break
-                    
-                    if secondary_rep and secondary_text:
-                        # Send secondary text
-                        await websocket.send_json({
-                            "type": "ai_response_text",
-                            "text": secondary_text,
-                            "speaker_id": secondary_rep["id"],
-                            "speaker_name": secondary_rep["name"],
-                            "speaker_role": secondary_rep["role"],
-                            "is_primary": False
+                            "is_chunk": True
                         })
                         
-                        v_id2, personality2 = await _get_rep_voice_and_personality(secondary_rep)
-                        secondary_audio = await _generate_audio(secondary_text, v_id2, personality2)
-                        
-                        # Upload secondary audio to S3 for recording
-                        secondary_audio_url = await _upload_audio(
-                            secondary_audio, meeting_id, secondary_turn_number, secondary_rep["id"]
-                        )
-                        
-                        secondary_turn = {
-                            "turn_number": secondary_turn_number, "speaker": secondary_rep["id"],
-                            "speaker_name": secondary_rep["name"], "text": secondary_text,
-                            "audio_url": secondary_audio_url,
-                            "timestamp": format_duration((len(conv_history) + 1) * 10),
-                            "duration_seconds": 4.0, "created_at": current_timestamp()
-                        }
-                        
-                        if secondary_audio:
+                        # Send audio chunk
+                        if audio_bytes:
+                            import base64
                             await websocket.send_json({
                                 "type": "ai_audio_complete",
-                                "audio_data": base64.b64encode(secondary_audio).decode(),
+                                "audio_data": base64.b64encode(audio_bytes).decode(),
                                 "audio_mime_type": "audio/mpeg",
-                                "speaker_id": secondary_rep["id"],
-                                "speaker_name": secondary_rep["name"],
-                                "speaker_role": secondary_rep["role"],
-                                "is_primary": False,
-                                "is_final": True
+                                "speaker_id": primary_rep["id"],
+                                "speaker_name": primary_rep["name"],
+                                "speaker_role": primary_rep["role"],
+                                "is_primary": True,
+                                "is_final": False,
+                                "chunk_no": chunk_no
                             })
                     
-                    # Save to DB
-                    turns_to_save = [salesperson_turn, primary_turn]
-                    total_ai_time = 6.0
-                    last_turn_no  = primary_turn_number
+                    full_text = full_text.strip()
+                    if not full_text:
+                        full_text = "I understand. Could you tell me more about that?"
+                        
+                    # Final complete notification
+                    await websocket.send_json({
+                        "type": "no_audio"
+                    })
+                    print("✅ Stream finished!")
                     
-                    if secondary_turn:
-                        turns_to_save.append(secondary_turn)
-                        total_ai_time += 4.0
-                        last_turn_no = secondary_turn_number
+                    # --- STREAMING PIPELINE END ---
+                    
+                    # Upload full audio to S3
+                    primary_turn_number = current_turn + 1
+                    primary_audio_url = None
+                    if full_audio_bytes:
+                        primary_audio_url = await _upload_audio(
+                            full_audio_bytes, meeting_id, primary_turn_number, primary_rep["id"]
+                        )
+                    
+                    primary_turn = {
+                        "turn_number": primary_turn_number, 
+                        "speaker": primary_rep["id"],
+                        "speaker_name": primary_rep["name"], 
+                        "text": full_text,
+                        "audio_url": primary_audio_url,
+                        "timestamp": format_duration(len(conv_history) * 10),
+                        "duration_seconds": max(1.0, len(full_audio_bytes) / 32000), # approx duration 
+                        "created_at": current_timestamp()
+                    }
+                    
+                    # Secondary Rep Removed for Low Latency Flow
+                    
+                    turns_to_save = [salesperson_turn, primary_turn]
+                    total_ai_time = primary_turn["duration_seconds"]
+                    last_turn_no = primary_turn_number
                     
                     try:
                         await conv_col.update_one(

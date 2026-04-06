@@ -403,6 +403,14 @@ class ElevenLabsService:
     def __init__(self):
         self.available_voices: Dict[str, str] = {}
         self.default_voice_id = "21m00Tcm4TlvDq8ikWAM"
+        self.api_key = settings.ELEVENLABS_API_KEY or ""
+        # WebSocket streaming enabled only if we have API key and websockets package
+        try:
+            import websockets
+            self.enabled_ws = bool(self.api_key)
+        except ImportError:
+            print("⚠️ websockets package not found - install with: pip install websockets")
+            self.enabled_ws = False
         self._load_voices()
 
     def _load_voices(self):
@@ -590,7 +598,153 @@ class ElevenLabsService:
         except Exception as e:
             logger.error(f"❌ Failed to fetch voices: {e}")
             return []
+            
+    from typing import AsyncGenerator
+    
+    async def stream_tts_from_sentences(
+        self,
+        sentences_stream,
+        voice_id: Optional[str] = None,
+        personality: str = "neutral",
+    ):
+        """
+        Consumes an async generator of sentences and yields audio chunks.
+        Each sentence is generated and yielded sequentially to preserve order.
+        """
+        async for sentence in sentences_stream:
+            try:
+                audio_bytes = await self.text_to_speech(
+                    text=sentence,
+                    voice_id=voice_id,
+                    personality=personality
+                )
+                if audio_bytes:
+                    yield (sentence, audio_bytes)
+            except Exception as e:
+                print(f"❌ TTS stream error for sentence '{sentence[:20]}...': {e}")
+                yield (sentence, b"")
 
+    async def stream_tts_websocket(
+        self,
+        token_stream,
+        voice_id: Optional[str] = None,
+        personality: str = "neutral",
+    ):
+        """
+        Ultra-low latency TTS using ElevenLabs WebSocket input streaming.
+        Pipes OpenAI token stream directly into ElevenLabs WS and yields
+        (text_chunk, audio_bytes) tuples as audio arrives.
+        
+        Flow:
+          OpenAI tokens → ElevenLabs WS input → audio chunks → yield to client
+        """
+        import websockets
+        import base64
+        import asyncio
+        import json as _json
+
+        if not self.enabled_ws:
+            # Fallback to sentence-based TTS
+            from app.utils.stream_helpers import sentence_buffer
+            async for item in self.stream_tts_from_sentences(
+                sentence_buffer(token_stream), voice_id=voice_id, personality=personality
+            ):
+                yield item
+            return
+
+        # Resolve voice
+        if voice_id and len(str(voice_id)) > 10:
+            resolved_voice = voice_id
+        else:
+            resolved_voice = self.available_voices.get(voice_id or "voice_0", self.default_voice_id)
+
+        settings_obj = self._get_voice_settings(personality)
+        model_id = "eleven_turbo_v2_5"
+
+        uri = (
+            f"wss://api.elevenlabs.io/v1/text-to-speech/{resolved_voice}"
+            f"/stream-input?model_id={model_id}&output_format=mp3_22050_32"
+        )
+
+        full_text = ""
+        audio_queue: asyncio.Queue = asyncio.Queue()
+        DONE_SENTINEL = None
+
+        async def _send_tokens(ws):
+            nonlocal full_text
+            try:
+                # Initialize connection with voice settings
+                await ws.send(_json.dumps({
+                    "text": " ",
+                    "voice_settings": {
+                        "stability": settings_obj.stability,
+                        "similarity_boost": settings_obj.similarity_boost,
+                        "style": getattr(settings_obj, 'style', 0.0),
+                        "use_speaker_boost": getattr(settings_obj, 'use_speaker_boost', True),
+                    },
+                    "generation_config": {
+                        "chunk_length_schedule": [80, 120, 180]
+                    },
+                    "xi_api_key": self.api_key,
+                }))
+
+                # Stream tokens from OpenAI
+                async for token in token_stream:
+                    full_text += token
+                    await ws.send(_json.dumps({"text": token}))
+
+                # Flush remaining buffer
+                await ws.send(_json.dumps({"text": "", "flush": True}))
+                # Close ElevenLabs WS
+                await ws.send(_json.dumps({"text": ""}))
+            except Exception as e:
+                print(f"❌ ElevenLabs WS send error: {e}")
+            finally:
+                await audio_queue.put(DONE_SENTINEL)
+
+        async def _receive_audio(ws):
+            try:
+                async for message in ws:
+                    data = _json.loads(message)
+                    if data.get("audio"):
+                        audio_bytes = base64.b64decode(data["audio"])
+                        await audio_queue.put(audio_bytes)
+                    if data.get("isFinal"):
+                        break
+            except Exception as e:
+                print(f"❌ ElevenLabs WS receive error: {e}")
+            finally:
+                await audio_queue.put(DONE_SENTINEL)
+
+        try:
+            async with websockets.connect(uri) as ws:
+                # Run sender and receiver concurrently
+                sender_task = asyncio.create_task(_send_tokens(ws))
+                receiver_task = asyncio.create_task(_receive_audio(ws))
+
+                done_count = 0
+                while done_count < 2:
+                    chunk = await audio_queue.get()
+                    if chunk is DONE_SENTINEL:
+                        done_count += 1
+                        continue
+                    yield (full_text, chunk)
+
+                await asyncio.gather(sender_task, receiver_task, return_exceptions=True)
+
+        except Exception as e:
+            print(f"❌ ElevenLabs WS connection error: {e}, falling back to HTTP TTS")
+            # Fallback: generate full audio via HTTP
+            try:
+                audio_bytes = await self.text_to_speech(
+                    text=full_text or "I understand.",
+                    voice_id=voice_id,
+                    personality=personality
+                )
+                if audio_bytes:
+                    yield (full_text, audio_bytes)
+            except Exception as fe:
+                print(f"❌ Fallback TTS also failed: {fe}")
 
 # =====================================================
 # Singleton

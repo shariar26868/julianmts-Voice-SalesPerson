@@ -432,10 +432,10 @@ class OpenAIService:
             
             print("🤖 Calling OpenAI API...")
             response = await client.chat.completions.create(
-                model=self.model,
+                model="gpt-4o-mini",
                 messages=messages,
-                temperature=0.8,
-                max_tokens=600,
+                temperature=0.9,
+                max_tokens=200,
                 response_format={"type": "json_object"}
             )
             
@@ -461,6 +461,93 @@ class OpenAIService:
             import traceback
             traceback.print_exc()
             return self._create_fallback_response(representatives, current_message, conversation_history)
+            
+    async def fast_identify_responder(
+        self,
+        conversation_history: List[Dict[str, str]],
+        representatives: List[Dict[str, Any]],
+        salesperson_data: Dict[str, Any],
+        current_message: str
+    ) -> Dict[str, Any]:
+        """Extremely fast, low-token call to just determine who should speak next."""
+        try:
+            prompt = f"Product: {salesperson_data.get('product_name','Unknown')}. "
+            prompt += "Reps: " + ", ".join([f"{r.get('name')} (ID: {r.get('id')}, Role: {r.get('role')})" for r in representatives]) + ". "
+            prompt += "Based on the conversation, output JSON with the ID and Name of the single person who should respond to the Salesperson's message. "
+            prompt += 'Format: {"primary_rep_id": "...", "primary_rep_name": "..."}'
+            
+            messages = [{"role": "system", "content": prompt}]
+            
+            # small history context
+            for turn in conversation_history[-4:]:
+                messages.append({
+                    "role": "user",
+                    "content": f"[{turn['speaker_name']}]: {turn['text']}"
+                })
+            messages.append({"role": "user", "content": f"[Salesperson]: {current_message}"})
+            
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",  # Use fast model
+                messages=messages,
+                temperature=0.3,
+                max_tokens=60,
+                response_format={"type": "json_object"}
+            )
+            
+            raw = response.choices[0].message.content
+            result = json.loads(raw)
+            return self._validate_response({"primary_rep_id": result.get("primary_rep_id"), "primary_rep_name": result.get("primary_rep_name"), "primary_response": "ok", "reasoning": "fast_intent"}, representatives)
+        except Exception as e:
+            print(f"❌ fast_identify_responder error: {e}")
+            return self._create_fallback_response(representatives, current_message, conversation_history)
+            
+    from typing import AsyncGenerator
+    
+    async def stream_response(
+        self,
+        conversation_history: List[Dict[str, str]],
+        representatives: List[Dict[str, Any]],
+        salesperson_data: Dict[str, Any],
+        company_data: Dict[str, Any],
+        current_message: str,
+        primary_rep: Dict[str, Any]
+    ): # -> AsyncGenerator[str, None]
+        """Stream the actual response text as it is generated, acting as the primary rep."""
+        try:
+            system_prompt = self._build_orchestrator_prompt(representatives, salesperson_data, company_data)
+            
+            # Since we only want text now, not JSON orchestrator format, we override instruction at the end
+            system_prompt += f"\n\nYou are {primary_rep.get('name')}, {primary_rep.get('role')}. Respond directly to the salesperson in character (1 to 3 natural sentences). NO JSON, output RAW TEXT ONLY."
+            
+            messages = [{"role": "system", "content": system_prompt}]
+            
+            for turn in conversation_history[-12:]:
+                messages.append({
+                    "role": "user",
+                    "content": f"[{turn['speaker_name']}]: {turn['text']}"
+                })
+            
+            messages.append({
+                "role": "user",
+                "content": f"[Salesperson]: {current_message}"
+            })
+            
+            # stream the text
+            stream = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=messages,
+                temperature=0.9,
+                max_tokens=120,
+                stream=True
+            )
+            
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+                    
+        except Exception as e:
+            print(f"❌ OpenAI stream error: {e}")
+            yield "That's an interesting point. Could you tell us more?"
     
     def _validate_response(self, result: Dict[str, Any], representatives: List[Dict[str, Any]]) -> Dict[str, Any]:
         def find_rep(rep_id, rep_name):
@@ -554,36 +641,41 @@ class OpenAIService:
         company_url  = company_data.get('company_url', 'N/A') if company_data else 'N/A'
         company_info = company_data.get('company_data', {}) if company_data else {}
         
-        return f"""You are managing a realistic sales meeting simulation with: {rep_names}.
+        return f"""You are roleplaying as a real person in a live sales meeting. You ARE {rep_names} — not an AI, not a simulation.
 
 COMPANY: {company_url} | Industry: {company_info.get('industry','N/A')} | Size: {company_info.get('company_size','N/A')}
-PRODUCT: {salesperson_data.get('product_name','N/A')} — {salesperson_data.get('description','N/A')}
+PRODUCT BEING PITCHED: {salesperson_data.get('product_name','N/A')} — {salesperson_data.get('description','N/A')}
 REPS:
 {reps_info}
 
-PRIMARY RESPONDER RULES:
-- Salesperson mentions a name → that person is PRIMARY (e.g. "what do you think shaikat" → shaikat responds)
-- Salesperson says a role (CEO/CFO/CTO) → match by role
-- Financial/budget topics → CFO first
-- Strategy/vision → CEO first  
-- Technical → CTO first
-- Otherwise → ROTATE, avoid same person twice in a row
-- If LAST message was from rep X → prefer the OTHER rep as primary this time
+PERSONALITY GUIDE (speak and react exactly like this):
+- angry → irritated, short sentences, interrupts, challenges everything: "Look, I don't have time for vague promises."
+- arrogant → condescending, name-drops, dismissive: "We've seen a dozen solutions like this. What's actually different?"
+- soft → warm, encouraging, asks follow-ups: "That's really interesting, tell me more about how that works."
+- cold_hearted → purely factual, no small talk, numbers only: "What's the ROI? Give me the data."
+- nice → friendly, collaborative, positive: "I love that approach! How would that fit into our current workflow?"
+- analytical → methodical, skeptical, needs proof: "Can you walk me through the specific metrics behind that claim?"
+- neutral → professional, balanced, thoughtful: "That makes sense. How does that compare to alternatives?"
 
-SECONDARY RESPONDER RULES (optional, ~30% of turns only):
-- Only add secondary if it feels genuinely natural
-- Must be DIFFERENT person than primary
-- Keep secondary to 1-2 sentences max
-- Set to null if not natural
+WHO RESPONDS:
+- If salesperson says a name → that person responds
+- If topic is financial/budget → CFO responds
+- If topic is technical → CTO responds  
+- If topic is strategy/vision → CEO responds
+- Otherwise → rotate, don't let same person respond twice in a row
 
-PERSONALITY:
-angry=hostile/short | arrogant=dismissive | soft=warm | cold_hearted=factual | nice=friendly | analytical=data-focused | neutral=professional
+HUMAN SPEECH RULES (critical):
+- Use contractions: "I'm", "we've", "that's", "don't", "can't"
+- Add natural fillers occasionally: "Look,", "Honestly,", "I mean,", "Right, so..."
+- React emotionally to what was said, don't just answer mechanically
+- Keep it 1-3 sentences — real people don't monologue in meetings
+- Reference something specific from what the salesperson just said
 
-RETURN ONLY THIS JSON (no markdown, no extra text):
+RETURN ONLY THIS JSON:
 {{
     "primary_rep_id": "exact id",
     "primary_rep_name": "exact name",
-    "primary_response": "2-4 sentences matching personality",
+    "primary_response": "natural human response 1-3 sentences",
     "secondary_rep_id": null,
     "secondary_rep_name": null,
     "secondary_response": null,
