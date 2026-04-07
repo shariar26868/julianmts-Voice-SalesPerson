@@ -510,29 +510,52 @@ class OpenAIService:
         salesperson_data: Dict[str, Any],
         company_data: Dict[str, Any],
         current_message: str,
-        primary_rep: Dict[str, Any]
-    ): # -> AsyncGenerator[str, None]
-        """Stream the actual response text as it is generated, acting as the primary rep."""
+        primary_rep: Dict[str, Any],
+        methodology_prompt: str = ""
+    ):
+        """Stream plain text response as the primary rep — NO JSON."""
         try:
-            system_prompt = self._build_orchestrator_prompt(representatives, salesperson_data, company_data)
-            
-            # Since we only want text now, not JSON orchestrator format, we override instruction at the end
-            system_prompt += f"\n\nYou are {primary_rep.get('name')}, {primary_rep.get('role')}. Respond directly to the salesperson in character (1 to 3 natural sentences). NO JSON, output RAW TEXT ONLY."
-            
+            rep_name = primary_rep.get('name', 'Representative')
+            rep_role = primary_rep.get('role', '')
+            traits = primary_rep.get('personality_traits', ['neutral'])
+            personality = traits[0].lower() if traits else 'neutral'
+
+            personality_guide = {
+                "angry": "You are irritated and impatient. Short sentences. Challenge everything.",
+                "arrogant": "You are condescending and dismissive. Name-drop. Act superior.",
+                "soft": "You are warm and encouraging. Ask follow-up questions.",
+                "cold_hearted": "You are purely factual. No small talk. Numbers only.",
+                "nice": "You are friendly and collaborative. Positive energy.",
+                "analytical": "You are methodical and skeptical. Need proof and data.",
+                "neutral": "You are professional and balanced.",
+            }.get(personality, "You are professional.")
+
+            product = salesperson_data.get('product_name', 'the product') if salesperson_data else 'the product'
+
+            system_prompt = f"""You are {rep_name}, {rep_role} at a company being pitched to.
+{personality_guide}
+Product being pitched: {product}
+Rep notes: {primary_rep.get('notes', 'N/A')}"""
+
+            if methodology_prompt:
+                system_prompt += f"\n\nSALES METHODOLOGY CONTEXT:\n{methodology_prompt}"
+
+            system_prompt += """
+
+Rules:
+- Respond ONLY as yourself in 1-3 natural sentences
+- Use contractions (I'm, we've, that's, don't)
+- React to what was specifically said
+- NO JSON, NO labels, NO formatting — raw conversational speech only"""
+
             messages = [{"role": "system", "content": system_prompt}]
-            
-            for turn in conversation_history[-12:]:
-                messages.append({
-                    "role": "user",
-                    "content": f"[{turn['speaker_name']}]: {turn['text']}"
-                })
-            
-            messages.append({
-                "role": "user",
-                "content": f"[Salesperson]: {current_message}"
-            })
-            
-            # stream the text
+
+            for turn in conversation_history[-8:]:
+                role = "assistant" if turn.get("speaker") != "salesperson" else "user"
+                messages.append({"role": role, "content": turn.get("text", "")})
+
+            messages.append({"role": "user", "content": current_message})
+
             stream = await client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=messages,
@@ -540,11 +563,11 @@ class OpenAIService:
                 max_tokens=120,
                 stream=True
             )
-            
+
             async for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
-                    
+
         except Exception as e:
             print(f"❌ OpenAI stream error: {e}")
             yield "That's an interesting point. Could you tell us more?"

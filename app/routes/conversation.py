@@ -839,7 +839,7 @@ from app.models.schemas import ConversationCreate, AIResponse
 from app.config.database import (
     get_conversation_collection, get_meeting_collection,
     get_salesperson_collection, get_company_collection,
-    get_representative_collection
+    get_representative_collection, get_methodology_prompt_collection
 )
 from app.services.openai_service import openai_service
 from app.services.elevenlabs_service import elevenlabs_service
@@ -1442,6 +1442,18 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
         
         salesperson = await get_salesperson_collection().find_one({"_id": meeting["salesperson_id"]})
         company     = await get_company_collection().find_one({"_id": meeting["company_id"]})
+
+        # Fetch methodology prompt
+        methodology = meeting.get("sales_methodology", "MEDDIC").upper()
+        methodology_col = get_methodology_prompt_collection()
+        methodology_doc = await methodology_col.find_one({"_id": methodology})
+        methodology_prompt = methodology_doc.get("prompt", "") if methodology_doc else ""
+        if not methodology_prompt:
+            from app.routes.admin import _seed_defaults
+            await _seed_defaults()
+            methodology_doc = await methodology_col.find_one({"_id": methodology})
+            methodology_prompt = methodology_doc.get("prompt", "") if methodology_doc else ""
+        print(f"📋 Using methodology: {methodology}")
         
         rep_col = get_representative_collection()
         representatives = []
@@ -1578,7 +1590,8 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                         salesperson_data=salesperson,
                         company_data=company,
                         current_message=transcribed,
-                        primary_rep=primary_rep
+                        primary_rep=primary_rep,
+                        methodology_prompt=methodology_prompt
                     )
                     
                     # 3. Pipe directly into ElevenLabs WebSocket stream
@@ -1593,27 +1606,31 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     full_text = ""
                     full_audio_bytes = b""
                     chunk_no = 0
-                    
+                    last_sent_text_len = 0
+
                     print(f"🚀 Starting stream to frontend for {primary_rep['name']}...")
-                    
-                    # Iterate the audio stream yielding (sentence, audio_bytes)
-                    async for sentence, audio_bytes in audio_stream:
+
+                    async for text_so_far, audio_bytes in audio_stream:
                         chunk_no += 1
-                        full_text += sentence + " "
+                        full_text = text_so_far  # WS stream updates full_text cumulatively
                         if audio_bytes:
                             full_audio_bytes += audio_bytes
-                        
-                        # Send text chunk
-                        await websocket.send_json({
-                            "type": "ai_response_text",
-                            "text": sentence,
-                            "speaker_id": primary_rep["id"],
-                            "speaker_name": primary_rep["name"],
-                            "speaker_role": primary_rep["role"],
-                            "is_primary": True,
-                            "is_chunk": True
-                        })
-                        
+
+                        # Send only the NEW text since last chunk
+                        new_text = full_text[last_sent_text_len:].strip()
+                        last_sent_text_len = len(full_text)
+
+                        if new_text:
+                            await websocket.send_json({
+                                "type": "ai_response_text",
+                                "text": new_text,
+                                "speaker_id": primary_rep["id"],
+                                "speaker_name": primary_rep["name"],
+                                "speaker_role": primary_rep["role"],
+                                "is_primary": True,
+                                "is_chunk": True
+                            })
+
                         # Send audio chunk
                         if audio_bytes:
                             import base64

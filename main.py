@@ -78,8 +78,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.database import mongodb
 from app.routes import salesperson, company, meeting, conversation
-
-# Create FastAPI app
+from app.routes import admin
 app = FastAPI(
     title="AI Sales Training Platform",
     description="Multi-agent AI conversation platform for sales training",
@@ -137,3 +136,4 @@ app.include_router(salesperson.router, prefix="/salespersons", tags=["Salesperso
 app.include_router(company.router, prefix="/companies", tags=["Company"])
 app.include_router(meeting.router, prefix="/meetings", tags=["Meeting"])
 app.include_router(conversation.router, prefix="/conversations", tags=["Conversation"])
+app.include_router(admin.router)

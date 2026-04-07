@@ -145,7 +145,7 @@ async def add_representatives(
                 "_id": rep_id,
                 "company_id": company_id,
                 "name": representative.name,
-                "role": representative.role.value,
+                "role": representative.custom_role if representative.role.value == "other" and representative.custom_role else representative.role.value,
                 "is_decision_maker": representative.is_decision_maker,
                 "linkedin_profile": str(representative.linkedin_profile) if representative.linkedin_profile else None,
                 "notes": representative.notes,

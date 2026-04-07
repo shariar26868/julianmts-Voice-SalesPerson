@@ -220,6 +220,7 @@ class RoleType(str, Enum):
     VP_SALES = "vp_sales"
     DIRECTOR = "director"
     MANAGER = "manager"
+    OTHER = "other"
 
 
 class DifficultyLevel(str, Enum):
@@ -330,8 +331,7 @@ class CompanyResponse(BaseModel):
 class RepresentativeCreate(BaseModel):
     name: str
     role: RoleType
-    # tenure_months: int
-    # personality_traits: List[PersonalityType]
+    custom_role: Optional[str] = None  # used when role = "other"
     is_decision_maker: bool = False
     linkedin_profile: Optional[HttpUrl] = None
     notes: Optional[str] = None

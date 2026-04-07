@@ -47,3 +47,6 @@ def get_conversation_collection():
 
 def get_representative_collection():
     return mongodb.get_collection("representatives")
+
+def get_methodology_prompt_collection():
+    return mongodb.get_collection("methodology_prompts")

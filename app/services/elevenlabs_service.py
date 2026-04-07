@@ -723,11 +723,13 @@ class ElevenLabsService:
                 receiver_task = asyncio.create_task(_receive_audio(ws))
 
                 done_count = 0
+                accumulated_text = ""
                 while done_count < 2:
                     chunk = await audio_queue.get()
                     if chunk is DONE_SENTINEL:
                         done_count += 1
                         continue
+                    # yield current accumulated text snapshot + audio chunk
                     yield (full_text, chunk)
 
                 await asyncio.gather(sender_task, receiver_task, return_exceptions=True)
