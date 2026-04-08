@@ -243,6 +243,7 @@ class SalesMethodology(str, Enum):
     SPIN_SELLING = "SPIN Selling"
     MEDDPICC = "MEDDPICC"
     VALUE_SELLING = "Value Selling"
+    OTHER = "Other"
 
 
 # Sales Person Schemas
@@ -330,8 +331,7 @@ class CompanyResponse(BaseModel):
 
 class RepresentativeCreate(BaseModel):
     name: str
-    role: RoleType
-    custom_role: Optional[str] = None  # used when role = "other"
+    role: str  # accepts any string — CEO, CMO, or custom like "VP of Engineering"
     is_decision_maker: bool = False
     linkedin_profile: Optional[HttpUrl] = None
     notes: Optional[str] = None
@@ -360,6 +360,8 @@ class MeetingCreate(BaseModel):
     duration_minutes: int = 30
     difficulty: DifficultyLevel = DifficultyLevel.BEGINNER
     sales_methodology: SalesMethodology = SalesMethodology.MEDDIC
+    custom_sales_methodology: Optional[str] = None  # used when sales_methodology = "Other"
+    methodology_description: Optional[str] = None  # extra context to influence AI behavior
 
 
 class MeetingResponse(BaseModel):

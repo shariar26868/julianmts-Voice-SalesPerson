@@ -82,7 +82,8 @@ async def create_meeting(meeting_data: MeetingCreate):
             "personality": meeting_data.personality.value,
             "duration_minutes": meeting_data.duration_minutes,
             "difficulty": meeting_data.difficulty.value,
-            "sales_methodology": meeting_data.sales_methodology.value,
+            "sales_methodology": meeting_data.custom_sales_methodology if meeting_data.sales_methodology.value == "Other" and meeting_data.custom_sales_methodology else meeting_data.sales_methodology.value,
+            "methodology_description": meeting_data.methodology_description or "",
             "status": "pending",  # pending, active, completed
             "created_at": current_timestamp(),
             "started_at": None,

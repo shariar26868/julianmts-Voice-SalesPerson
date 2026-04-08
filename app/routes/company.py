@@ -145,7 +145,7 @@ async def add_representatives(
                 "_id": rep_id,
                 "company_id": company_id,
                 "name": representative.name,
-                "role": representative.custom_role if representative.role.value == "other" and representative.custom_role else representative.role.value,
+                "role": representative.role,
                 "is_decision_maker": representative.is_decision_maker,
                 "linkedin_profile": str(representative.linkedin_profile) if representative.linkedin_profile else None,
                 "notes": representative.notes,
@@ -206,9 +206,7 @@ async def update_representative(
         
         update_data = {
             "name": representative.name,
-            "role": representative.role.value,
-            # "tenure_months": representative.tenure_months,
-            # "personality_traits": [trait.value for trait in representative.personality_traits],
+            "role": representative.role,
             "is_decision_maker": representative.is_decision_maker,
             "linkedin_profile": str(representative.linkedin_profile) if representative.linkedin_profile else None,
             "notes": representative.notes,

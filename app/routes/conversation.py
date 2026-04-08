@@ -1453,6 +1453,14 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
             await _seed_defaults()
             methodology_doc = await methodology_col.find_one({"_id": methodology})
             methodology_prompt = methodology_doc.get("prompt", "") if methodology_doc else ""
+            if not methodology_prompt:
+                methodology_prompt = f"The salesperson is using the {meeting.get('sales_methodology', 'custom')} sales methodology. Respond realistically and make them work to qualify the opportunity."
+
+        # Append user-provided description if any
+        methodology_description = meeting.get("methodology_description", "")
+        if methodology_description:
+            methodology_prompt += f"\n\nAdditional context from the trainer:\n{methodology_description}"
+
         print(f"📋 Using methodology: {methodology}")
         
         rep_col = get_representative_collection()
