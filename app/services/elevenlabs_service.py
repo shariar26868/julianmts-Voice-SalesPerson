@@ -528,7 +528,7 @@ class ElevenLabsService:
                     client.text_to_speech.convert,
                     text=text,
                     voice_id=resolved_voice,
-                    model_id="eleven_turbo_v2",
+                    model_id="eleven_turbo_v2_5",
                     output_format="mp3_22050_32",
                     voice_settings=settings_obj
                 )

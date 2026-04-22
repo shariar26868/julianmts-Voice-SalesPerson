@@ -1508,7 +1508,11 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
         print(f"✅ WS connected: {meeting_id} | session #{attempt_number} ({session_id})")
         
         while True:
-            data = await websocket.receive_json()
+            try:
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=30.0)
+            except asyncio.TimeoutError:
+                await websocket.send_json({"type": "ping"})
+                continue
             msg_type = data.get("type")
             
             if msg_type == "audio_chunk":
@@ -1563,15 +1567,13 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     
                     # --- STREAMING PIPELINE START ---
                     
-                    # Single call: identify responder + stream response together
-                    # First, pick responder from last turn rotation (no extra API call)
+                    # Pick responder locally (no extra API call)
                     last_speaker_id = None
                     for t in reversed(conv_history):
                         if t.get("speaker") != "salesperson":
                             last_speaker_id = t.get("speaker")
                             break
 
-                    # Pick primary rep (rotate away from last speaker)
                     primary_rep = representatives[0]
                     if last_speaker_id and len(representatives) > 1:
                         for rep in representatives:
@@ -1579,7 +1581,7 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                                 primary_rep = rep
                                 break
 
-                    # Check if salesperson addressed someone by name/role
+                    # If salesperson addressed someone by name/role, use that rep
                     msg_lower = transcribed.lower()
                     for rep in representatives:
                         if rep.get("name", "").lower() in msg_lower or rep.get("role", "").lower() in msg_lower:
@@ -1591,7 +1593,7 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                         "message": f"{primary_rep['name']} is preparing to speak..."
                     })
                     
-                    # 2. Get stream generator from OpenAI
+                    # Stream OpenAI response token by token
                     token_stream = openai_service.stream_response(
                         conversation_history=conv_history,
                         representatives=representatives,
@@ -1601,43 +1603,39 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                         primary_rep=primary_rep,
                         methodology_prompt=methodology_prompt
                     )
-                    
-                    # 3. Pipe directly into ElevenLabs WebSocket stream
-                    # OpenAI tokens → ElevenLabs WS → audio chunks → client
+
+                    # Buffer into sentences then TTS each sentence
+                    from app.utils.stream_helpers import sentence_buffer
+                    sentence_stream = sentence_buffer(token_stream)
+
                     v_id, personality = await _get_rep_voice_and_personality(primary_rep)
-                    audio_stream = elevenlabs_service.stream_tts_websocket(
-                        token_stream=token_stream,
+                    audio_stream = elevenlabs_service.stream_tts_from_sentences(
+                        sentences_stream=sentence_stream,
                         voice_id=v_id,
                         personality=personality
                     )
-                    
+
                     full_text = ""
                     full_audio_bytes = b""
                     chunk_no = 0
-                    last_sent_text_len = 0
 
                     print(f"🚀 Starting stream to frontend for {primary_rep['name']}...")
 
-                    async for text_so_far, audio_bytes in audio_stream:
+                    async for sentence, audio_bytes in audio_stream:
                         chunk_no += 1
-                        full_text = text_so_far  # WS stream updates full_text cumulatively
+                        full_text += sentence + " "
                         if audio_bytes:
                             full_audio_bytes += audio_bytes
 
-                        # Send only the NEW text since last chunk
-                        new_text = full_text[last_sent_text_len:].strip()
-                        last_sent_text_len = len(full_text)
-
-                        if new_text:
-                            await websocket.send_json({
-                                "type": "ai_response_text",
-                                "text": new_text,
-                                "speaker_id": primary_rep["id"],
-                                "speaker_name": primary_rep["name"],
-                                "speaker_role": primary_rep["role"],
-                                "is_primary": True,
-                                "is_chunk": True
-                            })
+                        await websocket.send_json({
+                            "type": "ai_response_text",
+                            "text": sentence,
+                            "speaker_id": primary_rep["id"],
+                            "speaker_name": primary_rep["name"],
+                            "speaker_role": primary_rep["role"],
+                            "is_primary": True,
+                            "is_chunk": True
+                        })
 
                         # Send audio chunk
                         if audio_bytes:
