@@ -230,31 +230,46 @@ AI Web Search Results:
             prompt = f"""
 You are a company data extraction expert.
 
-Extract:
-- company_size
-- headquarters
-- revenue
-- industry
-- founded_year
-- description
+Extract ALL available information about this company from the content below.
 
 Content:
 {combined_content}
 
 IMPORTANT RULES:
 - Extract the best possible estimate from available content
-- If multiple sources differ, choose the most frequently mentioned value
 - Use reasonable inference when strongly implied
-- Return null if not found
+- Return null if genuinely not found
 
 Return ONLY valid JSON:
 {{
-  "company_size": "value or null",
-  "headquarters": "value or null",
-  "revenue": "value or null",
-  "industry": "value or null",
-  "founded_year": "value or null",
-  "description": "value or null"
+  "company_size": "e.g. 500 employees or null",
+  "headquarters": "City, Country or null",
+  "revenue": "e.g. $50M ARR or null",
+  "industry": "e.g. SaaS, FinTech or null",
+  "founded_year": "e.g. 2015 or null",
+  "description": "1-2 sentence company description or null",
+  "wappalyzer_tech_stack": ["tech1", "tech2"],
+  "hiring_data": {{
+    "open_positions": 10,
+    "hiring_summary": "Actively hiring engineers and sales reps"
+  }},
+  "customer_reviews": {{
+    "rating": 4.5,
+    "total_reviews": 200,
+    "summary": "Customers praise ease of use but note pricing concerns"
+  }},
+  "latest_news": ["News item 1", "News item 2"],
+  "financial_statements": {{
+    "yoy_growth": "35% YoY",
+    "arr": "$12M ARR",
+    "burn_rate": null
+  }},
+  "product_documentation": {{
+    "api_docs_available": true,
+    "integration_guides_available": true,
+    "video_tutorials_available": false,
+    "documentation_url": "https://docs.example.com or null"
+  }}
 }}
 """
 
@@ -265,7 +280,7 @@ Return ONLY valid JSON:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.1,
-                max_tokens=500
+                max_tokens=1200
             )
 
             result_text = response.choices[0].message.content.strip()

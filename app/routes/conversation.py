@@ -1347,7 +1347,6 @@ async def _generate_and_save_analytics(session_id: str):
         import imageio_ffmpeg
         
         temp_files = []
-        out_file = None
         
         try:
             # Download chunks to temp files
@@ -1366,38 +1365,50 @@ async def _generate_and_save_analytics(session_id: str):
             print(f"✅ Downloaded {len(temp_files)}/{len(audio_urls)} segments. Merging via FFMPEG...")
             
             ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-            cmd = [ffmpeg_exe, "-y"]
-            
-            # Simple handling for single file vs multiple
-            if len(temp_files) == 1:
-                cmd.extend(["-i", temp_files[0], "-c:a", "libmp3lame", "-b:a", "128k"])
-                out_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3').name
-                cmd.append(out_file)
-            else:
-                for f in temp_files:
-                    cmd.extend(["-i", f])
-                    
-                filter_str = "".join([f"[{i}:a]" for i in range(len(temp_files))])
-                filter_str += f"concat=n={len(temp_files)}:v=0:a=1[out]"
-                cmd.extend(["-filter_complex", filter_str, "-map", "[out]"])
-                cmd.extend(["-c:a", "libmp3lame", "-b:a", "128k"])
-                out_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3').name
-                cmd.append(out_file)
-                
-            res = subprocess.run(cmd, capture_output=True, text=True)
-            if res.returncode != 0:
-                raise Exception(f"FFMPEG failed: {res.stderr}")
-                
-            with open(out_file, 'rb') as f:
-                merged_bytes = f.read()
-                
+
+            # Step 1: Convert ALL files to mp3 first (handles mixed webm/mp3 formats)
+            converted_files = []
+            try:
+                for src in temp_files:
+                    dst = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3').name
+                    conv_cmd = [ffmpeg_exe, "-y", "-i", src, "-c:a", "libmp3lame", "-b:a", "128k", "-ar", "22050", "-ac", "1", dst]
+                    conv_res = subprocess.run(conv_cmd, capture_output=True, text=True)
+                    if conv_res.returncode == 0:
+                        converted_files.append(dst)
+                    else:
+                        print(f"⚠️ Could not convert segment, skipping: {conv_res.stderr[:200]}")
+
+                if not converted_files:
+                    raise Exception("No segments could be converted to mp3")
+
+                # Step 2: Merge all converted mp3 files
+                if len(converted_files) == 1:
+                    with open(converted_files[0], 'rb') as f:
+                        merged_bytes = f.read()
+                else:
+                    out_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3').name
+                    cmd = [ffmpeg_exe, "-y"]
+                    for f in converted_files:
+                        cmd.extend(["-i", f])
+                    filter_str = "".join([f"[{i}:a]" for i in range(len(converted_files))])
+                    filter_str += f"concat=n={len(converted_files)}:v=0:a=1[out]"
+                    cmd.extend(["-filter_complex", filter_str, "-map", "[out]", "-c:a", "libmp3lame", "-b:a", "128k", out_file])
+                    res = subprocess.run(cmd, capture_output=True, text=True)
+                    if res.returncode != 0:
+                        raise Exception(f"FFMPEG failed: {res.stderr}")
+                    with open(out_file, 'rb') as f:
+                        merged_bytes = f.read()
+                    os.remove(out_file)
+
+            finally:
+                for f in converted_files:
+                    if os.path.exists(f): os.remove(f)
+
             print(f"✅ Merge successful — {len(merged_bytes)} bytes")
-            
+
         finally:
             for f in temp_files:
                 if os.path.exists(f): os.remove(f)
-            if out_file and os.path.exists(out_file):
-                os.remove(out_file)
 
         recording_url = await s3_service.upload_full_meeting_audio(
             audio_bytes=merged_bytes,

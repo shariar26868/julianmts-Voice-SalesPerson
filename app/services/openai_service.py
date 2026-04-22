@@ -712,7 +712,7 @@ RETURN ONLY THIS JSON:
 PRODUCT: {salesperson_data.get('product_name','?')} — {salesperson_data.get('description','N/A')}
 COMPANY: {company_info.get('industry','N/A')} | {company_info.get('company_size','N/A')}
 GOAL: {meeting_goal}
-Return ONLY: {{"questions": ["q1","q2","q3","q4","q5"]}}"""
+Return ONLY valid JSON format: {{"questions": ["q1","q2","q3","q4","q5"]}}"""
             
             response = await client.chat.completions.create(
                 model=self.model,
@@ -797,11 +797,11 @@ Return ONLY a valid JSON object matching exactly this structure:
     "opportunities": [
         "Opportunity 1"
     ],
-    "ai_insights": {
+    "ai_insights": {{
         "strength": "One specific thing the salesperson did well (1 sentence).",
         "improvement": "One specific area for improvement (1 sentence).",
         "pattern": "A recurring behavior or trend observed in this meeting (1 sentence)."
-    }
+    }}
 }}
 """
             messages = [
