@@ -6,6 +6,21 @@ import io
 
 client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
+# Minimum combined audio size to attempt transcription.
+# Audio below this threshold is too short to contain real speech and Whisper
+# is known to hallucinate common filler phrases on near-silent input.
+# ~0.25 seconds of audio at typical WebM/Opus bitrates.
+MIN_AUDIO_BYTES = 4000
+
+# Known phrases that Whisper hallucinates on near-silent or very short audio.
+# Normalized to lowercase for comparison.
+HALLUCINATION_PATTERNS = {
+    "thank you", "thanks", "bye", "goodbye",
+    "you too", "see you", "okay", "ok",
+    "sure", "alright", "uh", "um", "hmm",
+    "you", "the", "a", "i",
+}
+
 
 class WhisperService:
     """Handle real-time speech-to-text using OpenAI Whisper"""
@@ -85,11 +100,26 @@ class WhisperService:
             
             print(f"📦 Combined audio size: {len(combined_audio)} bytes")
             
-            if len(combined_audio) < 100:
-                print("⚠️ Audio too short, might be invalid")
-                return "Sorry, the audio was too short."
-            
-            return await self.transcribe_audio(combined_audio)
+            # Pre-call guard: skip Whisper on audio that is too short to contain
+            # real speech. The old < 100 threshold was far too low and allowed
+            # near-silent audio through, causing Whisper hallucinations.
+            if len(combined_audio) < MIN_AUDIO_BYTES:
+                print(f"⚠️ Audio below minimum threshold ({len(combined_audio)} < {MIN_AUDIO_BYTES} bytes), skipping Whisper")
+                return ""
+
+            result = await self.transcribe_audio(combined_audio)
+
+            # Post-call hallucination filter: discard known filler phrases that
+            # Whisper produces on near-silent audio above the byte threshold.
+            # Strip trailing punctuation before comparing against the pattern set.
+            normalized = result.lower().strip().rstrip(".,!?")
+            if normalized in HALLUCINATION_PATTERNS or (
+                len(normalized.split()) <= 1 and len(normalized) < 10
+            ):
+                print(f"⚠️ Hallucination detected, discarding: '{result}'")
+                return ""
+
+            return result
             
         except Exception as e:
             print(f"❌ Error in streaming transcription: {e}")

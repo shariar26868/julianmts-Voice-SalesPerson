@@ -266,6 +266,8 @@ RESPONSE RULES:
 - Soft personalities will be encouraging, helpful
 - Cold personalities will be brief, factual, unemotional
 - Decision makers have final say on commitments
+- If you do NOT understand the salesperson's message or need clarification, you MUST explicitly acknowledge the confusion first with a natural phrase such as "I'm not sure I followed that — could you give me a bit more detail?" or "I didn't quite catch that — could you clarify?" before asking your question. Do NOT silently rephrase or repeat a question you have already asked.
+- If a question you want to ask already appears in the recent conversation history, do NOT repeat it verbatim or paraphrase it without first acknowledging that you are returning to it.
 
 CRITICAL - OUTPUT FORMAT (MUST be valid JSON):
 {{
