@@ -282,6 +282,7 @@ async def get_company_account_details(company_id: str):
 
             meetings_data.append({
                 "meeting_id": meeting_id,
+                "salesperson_id": meeting.get("salesperson_id"),
                 "meeting_goal": meeting.get("meeting_goal"),
                 "status": meeting.get("status"),
                 "created_at": str(meeting.get("created_at")),
