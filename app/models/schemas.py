@@ -314,6 +314,7 @@ class CompanyData(BaseModel):
 
 class CompanyCreate(BaseModel):
     company_url: HttpUrl
+    salesperson_id: str
     auto_fetch: bool = True
 
 

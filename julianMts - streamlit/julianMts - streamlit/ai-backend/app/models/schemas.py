@@ -77,6 +77,7 @@ class CompanyData(BaseModel):
 
 class CompanyCreate(BaseModel):
     company_url: HttpUrl
+    salesperson_id: str
     auto_fetch: bool = True  # Auto fetch data from website
 
 

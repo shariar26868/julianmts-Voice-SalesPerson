@@ -29,6 +29,7 @@ async def create_company_data(company_data: CompanyCreate):
         
         company_doc = {
             "_id": company_id,
+            "salesperson_id": company_data.salesperson_id,
             "company_url": str(company_data.company_url),
             "company_data": scraped_data,
             "created_at": current_timestamp(),
@@ -42,6 +43,7 @@ async def create_company_data(company_data: CompanyCreate):
             success=True,
             data={
                 "company_id": company_id,
+                "salesperson_id": company_data.salesperson_id,
                 "company_data": scraped_data
             },
             message="Company data created successfully"
