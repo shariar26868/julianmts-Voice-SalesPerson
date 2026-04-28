@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Body, Query, RedirectResponse
+from fastapi import APIRouter, HTTPException, Body, Query
+from starlette.responses import RedirectResponse
 from typing import List
 from pydantic import BaseModel
 from app.models.schemas import (
