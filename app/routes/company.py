@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Query, RedirectResponse
 from typing import List
+from pydantic import BaseModel
 from app.models.schemas import (
     CompanyCreate, CompanyResponse, RepresentativeCreate,
     RepresentativeResponse, MeetingMode
@@ -10,9 +11,93 @@ from app.config.database import (
 )
 from app.services.scraper import scraper
 from app.services.openai_service import openai_service
+from app.services.url_validator_service import url_validator
 from app.utils.helpers import generate_id, current_timestamp, build_api_response
 
 router = APIRouter(prefix="/api/company", tags=["Company"])
+
+
+# Request/Response models
+class URLValidationRequest(BaseModel):
+    url: str
+
+
+class URLValidationResponse(BaseModel):
+    is_valid: bool
+    authenticated_url: str = None
+    is_reachable: bool
+    status_code: int = None
+    ssl_valid: bool
+    domain: str = None
+    errors: list
+    warnings: list
+    message: str = None
+
+
+@router.post("/validate-url", response_model=dict)
+async def validate_company_url(request: URLValidationRequest):
+    """
+    Validate and authenticate a company URL
+    
+    This endpoint checks:
+    - URL format and validity
+    - SSL certificate validity
+    - Website reachability
+    - Domain reputation
+    - Redirect chains
+    
+    Returns the authenticated URL if valid
+    """
+    try:
+        validation_result = await url_validator.validate_and_authenticate_url(request.url)
+
+        return build_api_response(
+            success=validation_result["is_valid"],
+            data={
+                "is_valid": validation_result["is_valid"],
+                "authenticated_url": validation_result["authenticated_url"],
+                "is_reachable": validation_result["is_reachable"],
+                "status_code": validation_result["status_code"],
+                "ssl_valid": validation_result["ssl_valid"],
+                "domain": validation_result["domain"],
+                "errors": validation_result["errors"],
+                "warnings": validation_result["warnings"],
+            },
+            message=validation_result.get("message", "URL validation completed")
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/redirect")
+async def redirect_to_authenticated_url(url: str = Query(..., description="The company URL to redirect to")):
+    """
+    Validate URL and redirect to authenticated website
+    
+    Usage: /api/company/redirect?url=example.com
+    
+    The system will:
+    1. Validate the URL
+    2. Add https:// if needed
+    3. Verify it's authentic and reachable
+    4. Redirect to the authenticated URL if valid
+    """
+    try:
+        authenticated_url = await url_validator.get_authenticated_url(url)
+
+        if authenticated_url:
+            return RedirectResponse(url=authenticated_url, status_code=307)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="URL validation failed. The website is not reachable or has security issues."
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/create", response_model=dict)
@@ -20,16 +105,41 @@ async def create_company_data(company_data: CompanyCreate):
     """Create company profile with AI-powered data extraction"""
     
     try:
+        # Validate and authenticate the URL first
+        validation_result = await url_validator.validate_and_authenticate_url(
+            str(company_data.company_url)
+        )
+
+        if not validation_result["is_valid"]:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Invalid or unreachable company URL",
+                    "errors": validation_result["errors"],
+                    "warnings": validation_result["warnings"]
+                }
+            )
+
+        # Use authenticated URL
+        authenticated_url = validation_result["authenticated_url"]
+        
         company_id = generate_id()
         
         scraped_data = {}
         if company_data.auto_fetch:
-            scraped_data = await scraper.scrape_company_data(str(company_data.company_url))
+            scraped_data = await scraper.scrape_company_data(authenticated_url)
         
         company_doc = {
             "_id": company_id,
             "salesperson_id": company_data.salesperson_id,
-            "company_url": str(company_data.company_url),
+            "company_url": authenticated_url,  # Store authenticated URL
+            "original_url": str(company_data.company_url),  # Store original input
+            "url_validation": {
+                "is_valid": validation_result["is_valid"],
+                "ssl_valid": validation_result["ssl_valid"],
+                "validated_at": current_timestamp(),
+                "domain": validation_result["domain"]
+            },
             "company_data": scraped_data,
             "created_at": current_timestamp(),
             "last_updated": current_timestamp()
@@ -43,11 +153,20 @@ async def create_company_data(company_data: CompanyCreate):
             data={
                 "company_id": company_id,
                 "salesperson_id": company_data.salesperson_id,
-                "company_data": scraped_data
+                "company_url": authenticated_url,
+                "company_data": scraped_data,
+                "url_validation": {
+                    "is_valid": validation_result["is_valid"],
+                    "ssl_valid": validation_result["ssl_valid"],
+                    "domain": validation_result["domain"],
+                    "warnings": validation_result["warnings"]
+                }
             },
-            message="Company data created successfully"
+            message="Company data created successfully with authenticated URL"
         )
     
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

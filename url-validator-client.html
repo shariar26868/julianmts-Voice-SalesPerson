@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Company URL Validator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 600px;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input[type="text"],
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+
+        .btn-validate {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-validate:hover {
+            background: #5568d3;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-redirect {
+            background: #48bb78;
+            color: white;
+        }
+
+        .btn-redirect:hover {
+            background: #38a169;
+            box-shadow: 0 5px 15px rgba(72, 187, 120, 0.4);
+        }
+
+        .btn-redirect:disabled {
+            background: #cbd5e0;
+            cursor: not-allowed;
+        }
+
+        .result-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f7fafc;
+            border-radius: 6px;
+            display: none;
+        }
+
+        .result-section.show {
+            display: block;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 12px;
+            margin-bottom: 15px;
+        }
+
+        .status-badge.valid {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .status-badge.invalid {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+
+        .status-badge.warning {
+            background: #feebc8;
+            color: #7c2d12;
+        }
+
+        .result-item {
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .result-item:last-child {
+            border-bottom: none;
+        }
+
+        .result-label {
+            font-weight: 600;
+            color: #333;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .result-value {
+            color: #555;
+            word-break: break-all;
+        }
+
+        .errors, .warnings {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .errors {
+            background: #fed7d7;
+            color: #742a2a;
+            border-left: 4px solid #fc8181;
+        }
+
+        .warnings {
+            background: #feebc8;
+            color: #7c2d12;
+            border-left: 4px solid #fbd38d;
+        }
+
+        .error-item, .warning-item {
+            margin: 5px 0;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        .error-item:before, .warning-item:before {
+            content: "⚠️";
+            position: absolute;
+            left: 0;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            color: #667eea;
+            margin: 20px 0;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .success-message {
+            background: #c6f6d5;
+            color: #22543d;
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .success-message.show {
+            display: block;
+        }
+
+        .info-box {
+            background: #edf2f7;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #333;
+        }
+
+        .info-box strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Company URL Validator</h1>
+        <p class="subtitle">Validate and authenticate company websites automatically</p>
+
+        <div class="info-box">
+            <strong>How it works:</strong>
+            Enter a company URL (with or without https://), and the system will automatically validate it,
+            verify SSL certificates, check if it's reachable, and redirect you to the authenticated website.
+        </div>
+
+        <form id="validationForm">
+            <div class="form-group">
+                <label for="companyUrl">Company URL</label>
+                <input
+                    type="text"
+                    id="companyUrl"
+                    placeholder="e.g., google.com, www.amazon.com, https://apple.com"
+                    required
+                >
+            </div>
+
+            <div class="button-group">
+                <button type="button" class="btn-validate" onclick="validateURL()">
+                    ✓ Validate URL
+                </button>
+                <button type="button" class="btn-redirect" id="redirectBtn" disabled onclick="redirectToURL()">
+                    → Go to Website
+                </button>
+            </div>
+        </form>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Validating URL...</p>
+        </div>
+
+        <div class="result-section" id="resultSection">
+            <div class="success-message" id="successMessage">
+                ✅ URL validated successfully!
+            </div>
+
+            <div id="resultContent"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000'; // Change this to your API URL
+
+        async function validateURL() {
+            const url = document.getElementById('companyUrl').value.trim();
+
+            if (!url) {
+                alert('Please enter a company URL');
+                return;
+            }
+
+            showLoading(true);
+
+            try {
+                const response = await fetch(`${API_BASE}/api/company/validate-url`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url })
+                });
+
+                const data = await response.json();
+
+                displayResults(data.data || data);
+
+                // Enable redirect button if valid
+                document.getElementById('redirectBtn').disabled = !data.data.is_valid;
+            } catch (error) {
+                console.error('Error:', error);
+                displayError('Failed to validate URL: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function redirectToURL() {
+            const url = document.getElementById('companyUrl').value.trim();
+
+            if (!url) {
+                alert('Please enter a company URL');
+                return;
+            }
+
+            try {
+                // Use the redirect endpoint
+                const encodedUrl = encodeURIComponent(url);
+                window.location.href = `${API_BASE}/api/company/redirect?url=${encodedUrl}`;
+            } catch (error) {
+                console.error('Error:', error);
+                displayError('Failed to redirect: ' + error.message);
+            }
+        }
+
+        function displayResults(data) {
+            const resultSection = document.getElementById('resultSection');
+            const successMessage = document.getElementById('successMessage');
+            const resultContent = document.getElementById('resultContent');
+
+            let html = '';
+
+            // Status badge
+            const statusClass = data.is_valid ? 'valid' : (data.is_reachable ? 'warning' : 'invalid');
+            const statusText = data.is_valid ? 'Valid & Authenticated' : (data.is_reachable ? 'Warning' : 'Invalid');
+            html += `<div class="status-badge ${statusClass}">${statusText}</div>`;
+
+            // Success message
+            if (data.is_valid) {
+                successMessage.classList.add('show');
+            } else {
+                successMessage.classList.remove('show');
+            }
+
+            // Basic info
+            if (data.authenticated_url) {
+                html += `
+                    <div class="result-item">
+                        <div class="result-label">Authenticated URL</div>
+                        <div class="result-value"><code>${escapeHtml(data.authenticated_url)}</code></div>
+                    </div>
+                `;
+            }
+
+            if (data.domain) {
+                html += `
+                    <div class="result-item">
+                        <div class="result-label">Domain</div>
+                        <div class="result-value">${escapeHtml(data.domain)}</div>
+                    </div>
+                `;
+            }
+
+            // Status info
+            html += `
+                <div class="result-item">
+                    <div class="result-label">Website Status</div>
+                    <div class="result-value">
+                        Reachable: ${data.is_reachable ? '✅ Yes' : '❌ No'}
+                        ${data.status_code ? ` (HTTP ${data.status_code})` : ''}
+                    </div>
+                </div>
+            `;
+
+            html += `
+                <div class="result-item">
+                    <div class="result-label">SSL Certificate</div>
+                    <div class="result-value">${data.ssl_valid ? '✅ Valid' : '❌ Invalid or Self-Signed'}</div>
+                </div>
+            `;
+
+            // Errors
+            if (data.errors && data.errors.length > 0) {
+                html += `
+                    <div class="errors">
+                        <strong>Errors:</strong>
+                        ${data.errors.map(err => `<div class="error-item">${escapeHtml(err)}</div>`).join('')}
+                    </div>
+                `;
+            }
+
+            // Warnings
+            if (data.warnings && data.warnings.length > 0) {
+                html += `
+                    <div class="warnings">
+                        <strong>Warnings:</strong>
+                        ${data.warnings.map(warn => `<div class="warning-item">${escapeHtml(warn)}</div>`).join('')}
+                    </div>
+                `;
+            }
+
+            resultContent.innerHTML = html;
+            resultSection.classList.add('show');
+        }
+
+        function displayError(message) {
+            const resultSection = document.getElementById('resultSection');
+            const resultContent = document.getElementById('resultContent');
+
+            resultContent.innerHTML = `
+                <div class="errors">
+                    <strong>Error:</strong>
+                    <div class="error-item">${escapeHtml(message)}</div>
+                </div>
+            `;
+
+            resultSection.classList.add('show');
+            document.getElementById('redirectBtn').disabled = true;
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Allow Enter key to validate
+        document.getElementById('companyUrl').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                validateURL();
+            }
+        });
+    </script>
+</body>
+</html>
