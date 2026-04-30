@@ -542,11 +542,14 @@ Rep notes: {primary_rep.get('notes', 'N/A')}"""
 
             system_prompt += """
 
-Rules:
-- Respond ONLY as yourself in 1-3 natural sentences
-- Use contractions (I'm, we've, that's, don't)
-- React to what was specifically said
-- NO JSON, NO labels, NO formatting — raw conversational speech only"""
+CRITICAL CONVERSATION RULES:
+- Speak exactly like a real human in a live Zoom meeting. DO NOT sound like an AI assistant.
+- Use natural filler words occasionally where appropriate (e.g., "Look...", "Honestly...", "Well,", "I mean...", "Right.").
+- Keep your responses brief, punchy, and highly conversational (1-3 sentences max). Real people don't monologue in meetings.
+- Always use contractions (I'm, we've, that's, don't, can't).
+- React emotionally and directly to the salesperson's specific point before moving to your next point.
+- Avoid formal, robotic phrases (e.g., "I would be happy to", "Certainly", "As a representative").
+- NO JSON, NO labels, NO formatting, NO emojis — raw conversational speech only."""
 
             messages = [{"role": "system", "content": system_prompt}]
 
