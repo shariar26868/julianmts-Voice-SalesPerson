@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from typing import Optional
 from pydantic import BaseModel
-from app.config.database import get_methodology_prompt_collection
+from app.config.database import get_methodology_prompt_collection, get_system_config_collection
 from app.utils.helpers import current_timestamp, build_api_response
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
@@ -113,3 +113,57 @@ async def update_methodology_prompt(methodology_name: str, body: MethodologyProm
 
     await col.update_one({"_id": key}, {"$set": update})
     return build_api_response(success=True, message=f"{key} prompt updated successfully")
+
+
+# ─────────────────────────────────────────────
+# Global Admin System Prompt
+# ─────────────────────────────────────────────
+
+SYSTEM_PROMPT_DOC_ID = "global_system_prompt"
+
+
+class SystemPromptUpdate(BaseModel):
+    prompt: str
+
+
+@router.get("/system-prompt", response_model=dict)
+async def get_system_prompt():
+    """Get the current global admin system prompt."""
+    col = get_system_config_collection()
+    doc = await col.find_one({"_id": SYSTEM_PROMPT_DOC_ID})
+    if not doc:
+        return build_api_response(
+            success=True,
+            data={"prompt": None, "is_default": True, "updated_at": None},
+            message="No custom prompt set — using built-in default"
+        )
+    return build_api_response(
+        success=True,
+        data={
+            "prompt": doc["prompt"],
+            "is_default": False,
+            "updated_at": doc.get("updated_at")
+        }
+    )
+
+
+@router.put("/system-prompt", response_model=dict)
+async def set_system_prompt(body: SystemPromptUpdate):
+    """Set (or replace) the global admin system prompt."""
+    if not body.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty")
+    col = get_system_config_collection()
+    await col.update_one(
+        {"_id": SYSTEM_PROMPT_DOC_ID},
+        {"$set": {"prompt": body.prompt.strip(), "updated_at": current_timestamp()}},
+        upsert=True
+    )
+    return build_api_response(success=True, message="Global system prompt updated successfully")
+
+
+@router.delete("/system-prompt", response_model=dict)
+async def delete_system_prompt():
+    """Delete the admin system prompt — AI reverts to built-in default + methodology."""
+    col = get_system_config_collection()
+    await col.delete_one({"_id": SYSTEM_PROMPT_DOC_ID})
+    return build_api_response(success=True, message="Custom prompt deleted — reverted to built-in default")

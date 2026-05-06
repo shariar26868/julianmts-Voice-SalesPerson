@@ -511,36 +511,49 @@ class OpenAIService:
         company_data: Dict[str, Any],
         current_message: str,
         primary_rep: Dict[str, Any],
-        methodology_prompt: str = ""
+        methodology_prompt: str = "",
+        admin_system_prompt: str = ""
     ):
-        """Stream plain text response as the primary rep — NO JSON."""
+        """Stream plain text response as the primary rep — NO JSON.
+        
+        Priority:
+          - admin_system_prompt set → use ONLY that (methodology + inbuilt ignored)
+          - admin_system_prompt empty → inbuilt default + methodology (original behavior)
+        """
         try:
             rep_name = primary_rep.get('name', 'Representative')
             rep_role = primary_rep.get('role', '')
             traits = primary_rep.get('personality_traits', ['neutral'])
             personality = traits[0].lower() if traits else 'neutral'
 
-            personality_guide = {
-                "angry": "You are irritated and impatient. Short sentences. Challenge everything.",
-                "arrogant": "You are condescending and dismissive. Name-drop. Act superior.",
-                "soft": "You are warm and encouraging. Ask follow-up questions.",
-                "cold_hearted": "You are purely factual. No small talk. Numbers only.",
-                "nice": "You are friendly and collaborative. Positive energy.",
-                "analytical": "You are methodical and skeptical. Need proof and data.",
-                "neutral": "You are professional and balanced.",
-            }.get(personality, "You are professional.")
+            if admin_system_prompt:
+                # ── Admin prompt mode: use exactly what admin wrote ──────────
+                # No inbuilt personality guide, no methodology injected.
+                system_prompt = admin_system_prompt
+                print(f"🔐 [stream_response] Using admin system prompt ({len(admin_system_prompt)} chars)")
+            else:
+                # ── Default mode: inbuilt prompt + methodology ───────────────
+                personality_guide = {
+                    "angry": "You are irritated and impatient. Short sentences. Challenge everything.",
+                    "arrogant": "You are condescending and dismissive. Name-drop. Act superior.",
+                    "soft": "You are warm and encouraging. Ask follow-up questions.",
+                    "cold_hearted": "You are purely factual. No small talk. Numbers only.",
+                    "nice": "You are friendly and collaborative. Positive energy.",
+                    "analytical": "You are methodical and skeptical. Need proof and data.",
+                    "neutral": "You are professional and balanced.",
+                }.get(personality, "You are professional.")
 
-            product = salesperson_data.get('product_name', 'the product') if salesperson_data else 'the product'
+                product = salesperson_data.get('product_name', 'the product') if salesperson_data else 'the product'
 
-            system_prompt = f"""You are {rep_name}, {rep_role} at a company being pitched to.
+                system_prompt = f"""You are {rep_name}, {rep_role} at a company being pitched to.
 {personality_guide}
 Product being pitched: {product}
 Rep notes: {primary_rep.get('notes', 'N/A')}"""
 
-            if methodology_prompt:
-                system_prompt += f"\n\nSALES METHODOLOGY CONTEXT:\n{methodology_prompt}"
+                if methodology_prompt:
+                    system_prompt += f"\n\nSALES METHODOLOGY CONTEXT:\n{methodology_prompt}"
 
-            system_prompt += """
+                system_prompt += """
 
 CRITICAL CONVERSATION RULES:
 - Speak exactly like a real human in a live Zoom meeting. DO NOT sound like an AI assistant.

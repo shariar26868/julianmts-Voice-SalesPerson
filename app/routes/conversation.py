@@ -839,7 +839,8 @@ from app.models.schemas import ConversationCreate, AIResponse
 from app.config.database import (
     get_conversation_collection, get_meeting_collection,
     get_salesperson_collection, get_company_collection,
-    get_representative_collection, get_methodology_prompt_collection
+    get_representative_collection, get_methodology_prompt_collection,
+    get_system_config_collection
 )
 from app.services.openai_service import openai_service
 from app.services.elevenlabs_service import elevenlabs_service
@@ -1473,6 +1474,15 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
             methodology_prompt += f"\n\nAdditional context from the trainer:\n{methodology_description}"
 
         print(f"📋 Using methodology: {methodology}")
+
+        # Fetch global admin system prompt (if set, overrides everything)
+        config_col = get_system_config_collection()
+        system_config = await config_col.find_one({"_id": "global_system_prompt"})
+        admin_system_prompt = system_config.get("prompt", "").strip() if system_config else ""
+        if admin_system_prompt:
+            print("🔐 Admin system prompt active — overriding default + methodology")
+        else:
+            print("ℹ️ No admin prompt set — using built-in default + methodology")
         
         rep_col = get_representative_collection()
         representatives = []
@@ -1612,7 +1622,8 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                         company_data=company,
                         current_message=transcribed,
                         primary_rep=primary_rep,
-                        methodology_prompt=methodology_prompt
+                        methodology_prompt=methodology_prompt,
+                        admin_system_prompt=admin_system_prompt
                     )
 
                     # Buffer into sentences then TTS each sentence

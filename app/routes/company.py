@@ -13,6 +13,7 @@ from app.config.database import (
 from app.services.scraper import scraper
 from app.services.openai_service import openai_service
 from app.services.url_validator_service import url_validator
+from app.services.google_search_service import google_search_service
 from app.utils.helpers import generate_id, current_timestamp, build_api_response
 
 router = APIRouter(prefix="/api/company", tags=["Company"])
@@ -103,43 +104,83 @@ async def redirect_to_authenticated_url(url: str = Query(..., description="The c
 
 @router.post("/create", response_model=dict)
 async def create_company_data(company_data: CompanyCreate):
-    """Create company profile with AI-powered data extraction"""
+    """
+    Create company profile with AI-powered data extraction
+    
+    The endpoint accepts any input for company_url:
+    - If it's a valid URL or domain, uses it directly
+    - If it's a search term, searches Google and auto-fills the URL
+    - Proceeds even if URL has SSL issues or is temporarily unreachable
+    """
     
     try:
-        # Validate and authenticate the URL first
-        validation_result = await url_validator.validate_and_authenticate_url(
-            str(company_data.company_url)
-        )
-
-        if not validation_result["is_valid"]:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "message": "Invalid or unreachable company URL",
-                    "errors": validation_result["errors"],
-                    "warnings": validation_result["warnings"]
-                }
-            )
-
-        # Use authenticated URL
-        authenticated_url = validation_result["authenticated_url"]
+        company_url_input = str(company_data.company_url).strip()
+        
+        # Step 1: Check if input is already a valid URL or domain
+        is_url = google_search_service._is_valid_url(company_url_input)
+        
+        company_url_to_use = company_url_input
+        search_query = None
+        
+        # Step 2: If not a URL/domain, search Google
+        if not is_url:
+            print(f"🔍 Searching Google for: {company_url_input}")
+            search_query = company_url_input
+            found_url = await google_search_service.search_company_url(company_url_input)
+            
+            if found_url:
+                company_url_to_use = found_url
+                print(f"✅ Found URL: {company_url_to_use}")
+            else:
+                raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "message": f"We searched everywhere but couldn't find a company called \"{company_url_input}\". Please double-check the name or try entering their website URL directly (e.g. betopia.com).",
+                        "search_query": company_url_input,
+                        "suggestion": "Try entering the full website URL instead of just the company name."
+                    }
+                )
+        
+        # Step 3: Normalize and validate the URL
+        print(f"🔐 Validating URL: {company_url_to_use}")
+        company_url_to_use = google_search_service._normalize_url(company_url_to_use)
+        
+        # Attempt validation, but don't fail if URL is unreachable or has SSL issues
+        validation_result = await url_validator.validate_and_authenticate_url(company_url_to_use)
+        
+        # Use the authenticated URL from validation, or fall back to normalized URL
+        authenticated_url = validation_result.get("authenticated_url") or company_url_to_use
         
         company_id = generate_id()
         
+        # Step 4: Scrape company data if auto_fetch is enabled
         scraped_data = {}
         if company_data.auto_fetch:
-            scraped_data = await scraper.scrape_company_data(authenticated_url)
+            # Only scrape if URL is reachable
+            if validation_result.get("is_reachable"):
+                print(f"📊 Scraping company data from: {authenticated_url}")
+                try:
+                    scraped_data = await scraper.scrape_company_data(authenticated_url)
+                except Exception as e:
+                    print(f"⚠️ Could not scrape data: {str(e)}")
+                    # Continue anyway - don't fail if scraping fails
+            else:
+                print(f"⚠️ URL not reachable, skipping scrape. Will scrape later.")
         
         company_doc = {
             "_id": company_id,
             "salesperson_id": company_data.salesperson_id,
-            "company_url": authenticated_url,  # Store authenticated URL
-            "original_url": str(company_data.company_url),  # Store original input
+            "company_url": authenticated_url,
+            "original_url": company_url_input,
+            "search_query": search_query,
             "url_validation": {
-                "is_valid": validation_result["is_valid"],
-                "ssl_valid": validation_result["ssl_valid"],
+                "is_valid": validation_result.get("is_valid", False),
+                "is_reachable": validation_result.get("is_reachable", False),
+                "ssl_valid": validation_result.get("ssl_valid", False),
                 "validated_at": current_timestamp(),
-                "domain": validation_result["domain"]
+                "domain": validation_result.get("domain"),
+                "errors": validation_result.get("errors", []),
+                "warnings": validation_result.get("warnings", [])
             },
             "company_data": scraped_data,
             "created_at": current_timestamp(),
@@ -149,26 +190,44 @@ async def create_company_data(company_data: CompanyCreate):
         collection = get_company_collection()
         await collection.insert_one(company_doc)
         
+        # Build status message
+        status_messages = []
+        if search_query:
+            status_messages.append(f"auto-found URL for '{search_query}'")
+        if validation_result.get("errors"):
+            status_messages.append(f"URL has issues but accepted")
+        if validation_result.get("warnings"):
+            status_messages.append(f"SSL/reachability warnings")
+        
+        message = "Company data created successfully"
+        if status_messages:
+            message += f" ({', '.join(status_messages)})"
+        
         return build_api_response(
             success=True,
             data={
                 "company_id": company_id,
                 "salesperson_id": company_data.salesperson_id,
+                "original_input": company_url_input,
+                "search_query": search_query,
                 "company_url": authenticated_url,
                 "company_data": scraped_data,
                 "url_validation": {
-                    "is_valid": validation_result["is_valid"],
-                    "ssl_valid": validation_result["ssl_valid"],
-                    "domain": validation_result["domain"],
-                    "warnings": validation_result["warnings"]
+                    "is_valid": validation_result.get("is_valid", False),
+                    "is_reachable": validation_result.get("is_reachable", False),
+                    "ssl_valid": validation_result.get("ssl_valid", False),
+                    "domain": validation_result.get("domain"),
+                    "errors": validation_result.get("errors", []),
+                    "warnings": validation_result.get("warnings", [])
                 }
             },
-            message="Company data created successfully with authenticated URL"
+            message=message
         )
     
     except HTTPException:
         raise
     except Exception as e:
+        print(f"❌ Error creating company: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

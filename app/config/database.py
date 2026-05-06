@@ -50,3 +50,6 @@ def get_representative_collection():
 
 def get_methodology_prompt_collection():
     return mongodb.get_collection("methodology_prompts")
+
+def get_system_config_collection():
+    return mongodb.get_collection("system_config")

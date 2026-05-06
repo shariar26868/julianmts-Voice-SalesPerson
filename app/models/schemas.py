@@ -313,7 +313,7 @@ class CompanyData(BaseModel):
 
 
 class CompanyCreate(BaseModel):
-    company_url: HttpUrl
+    company_url: str  # Changed from HttpUrl to str - accepts any input, backend will search Google
     salesperson_id: str
     auto_fetch: bool = True
 
