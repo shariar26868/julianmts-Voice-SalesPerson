@@ -1588,21 +1588,26 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     
                     # --- STREAMING PIPELINE START ---
                     
-                    # Pick responder locally (no extra API call)
+                    # Pick responder using round-robin across ALL reps
                     last_speaker_id = None
                     for t in reversed(conv_history):
                         if t.get("speaker") != "salesperson":
                             last_speaker_id = t.get("speaker")
                             break
 
-                    primary_rep = representatives[0]
-                    if last_speaker_id and len(representatives) > 1:
-                        for rep in representatives:
-                            if rep.get("id") != last_speaker_id:
-                                primary_rep = rep
-                                break
+                    if not last_speaker_id or len(representatives) == 1:
+                        # First turn or only one rep → use first rep
+                        primary_rep = representatives[0]
+                    else:
+                        # Find the index of the last speaker, then pick the NEXT one (round-robin)
+                        last_idx = next(
+                            (i for i, r in enumerate(representatives) if r.get("id") == last_speaker_id),
+                            -1
+                        )
+                        next_idx = (last_idx + 1) % len(representatives)
+                        primary_rep = representatives[next_idx]
 
-                    # If salesperson addressed someone by name/role, use that rep
+                    # If salesperson addressed someone by name/role, override with that rep
                     msg_lower = transcribed.lower()
                     for rep in representatives:
                         if rep.get("name", "").lower() in msg_lower or rep.get("role", "").lower() in msg_lower:
