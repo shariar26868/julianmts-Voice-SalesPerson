@@ -633,10 +633,8 @@ class ElevenLabsService:
         """
         Ultra-low latency TTS using ElevenLabs WebSocket input streaming.
         Pipes OpenAI token stream directly into ElevenLabs WS and yields
-        (text_chunk, audio_bytes) tuples as audio arrives.
-        
-        Flow:
-          OpenAI tokens → ElevenLabs WS input → audio chunks → yield to client
+        (msg_type, data) tuples as tokens/audio arrives.
+        msg_type is either "text" or "audio".
         """
         import websockets
         import base64
@@ -649,7 +647,10 @@ class ElevenLabsService:
             async for item in self.stream_tts_from_sentences(
                 sentence_buffer(token_stream), voice_id=voice_id, personality=personality
             ):
-                yield item
+                # Map to the new yield format
+                yield ("text", item[0])
+                if item[1]:
+                    yield ("audio", item[1])
             return
 
         # Resolve voice
@@ -667,8 +668,7 @@ class ElevenLabsService:
         )
 
         full_text = ""
-        audio_queue: asyncio.Queue = asyncio.Queue()
-        DONE_SENTINEL = None
+        queue: asyncio.Queue = asyncio.Queue()
 
         async def _send_tokens(ws):
             nonlocal full_text
@@ -692,6 +692,7 @@ class ElevenLabsService:
                 async for token in token_stream:
                     full_text += token
                     await ws.send(_json.dumps({"text": token}))
+                    await queue.put(("text", token))
 
                 # Flush remaining buffer
                 await ws.send(_json.dumps({"text": "", "flush": True}))
@@ -700,7 +701,7 @@ class ElevenLabsService:
             except Exception as e:
                 print(f"❌ ElevenLabs WS send error: {e}")
             finally:
-                await audio_queue.put(DONE_SENTINEL)
+                await queue.put(("done", "text"))
 
         async def _receive_audio(ws):
             try:
@@ -708,13 +709,13 @@ class ElevenLabsService:
                     data = _json.loads(message)
                     if data.get("audio"):
                         audio_bytes = base64.b64decode(data["audio"])
-                        await audio_queue.put(audio_bytes)
+                        await queue.put(("audio", audio_bytes))
                     if data.get("isFinal"):
                         break
             except Exception as e:
                 print(f"❌ ElevenLabs WS receive error: {e}")
             finally:
-                await audio_queue.put(DONE_SENTINEL)
+                await queue.put(("done", "audio"))
 
         try:
             async with websockets.connect(uri) as ws:
@@ -723,14 +724,12 @@ class ElevenLabsService:
                 receiver_task = asyncio.create_task(_receive_audio(ws))
 
                 done_count = 0
-                accumulated_text = ""
                 while done_count < 2:
-                    chunk = await audio_queue.get()
-                    if chunk is DONE_SENTINEL:
+                    msg_type, data = await queue.get()
+                    if msg_type == "done":
                         done_count += 1
                         continue
-                    # yield current accumulated text snapshot + audio chunk
-                    yield (full_text, chunk)
+                    yield (msg_type, data)
 
                 await asyncio.gather(sender_task, receiver_task, return_exceptions=True)
 
@@ -743,8 +742,9 @@ class ElevenLabsService:
                     voice_id=voice_id,
                     personality=personality
                 )
+                yield ("text", full_text)
                 if audio_bytes:
-                    yield (full_text, audio_bytes)
+                    yield ("audio", audio_bytes)
             except Exception as fe:
                 print(f"❌ Fallback TTS also failed: {fe}")
 

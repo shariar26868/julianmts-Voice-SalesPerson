@@ -1631,13 +1631,9 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                         admin_system_prompt=admin_system_prompt
                     )
 
-                    # Buffer into sentences then TTS each sentence
-                    from app.utils.stream_helpers import sentence_buffer
-                    sentence_stream = sentence_buffer(token_stream)
-
                     v_id, personality = await _get_rep_voice_and_personality(primary_rep)
-                    audio_stream = elevenlabs_service.stream_tts_from_sentences(
-                        sentences_stream=sentence_stream,
+                    audio_stream = elevenlabs_service.stream_tts_websocket(
+                        token_stream=token_stream,
                         voice_id=v_id,
                         personality=personality
                     )
@@ -1646,30 +1642,27 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     full_audio_bytes = b""
                     chunk_no = 0
 
-                    print(f"🚀 Starting stream to frontend for {primary_rep['name']}...")
+                    print(f"🚀 Starting WS stream to frontend for {primary_rep['name']}...")
 
-                    async for sentence, audio_bytes in audio_stream:
-                        chunk_no += 1
-                        full_text += sentence + " "
-                        if audio_bytes:
-                            full_audio_bytes += audio_bytes
-
-                        await websocket.send_json({
-                            "type": "ai_response_text",
-                            "text": sentence,
-                            "speaker_id": primary_rep["id"],
-                            "speaker_name": primary_rep["name"],
-                            "speaker_role": primary_rep["role"],
-                            "is_primary": True,
-                            "is_chunk": True
-                        })
-
-                        # Send audio chunk
-                        if audio_bytes:
+                    async for msg_type, data in audio_stream:
+                        if msg_type == "text":
+                            full_text += data
+                            await websocket.send_json({
+                                "type": "ai_response_text",
+                                "text": data,
+                                "speaker_id": primary_rep["id"],
+                                "speaker_name": primary_rep["name"],
+                                "speaker_role": primary_rep["role"],
+                                "is_primary": True,
+                                "is_chunk": True
+                            })
+                        elif msg_type == "audio":
+                            chunk_no += 1
+                            full_audio_bytes += data
                             import base64
                             await websocket.send_json({
                                 "type": "ai_audio_complete",
-                                "audio_data": base64.b64encode(audio_bytes).decode(),
+                                "audio_data": base64.b64encode(data).decode(),
                                 "audio_mime_type": "audio/mpeg",
                                 "speaker_id": primary_rep["id"],
                                 "speaker_name": primary_rep["name"],
