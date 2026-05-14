@@ -1221,6 +1221,10 @@
         // Rep cards map
         let repCards = {};
 
+        // ─── Streaming message accumulation ──────────────────────
+        // Track current speaker being streamed to avoid creating multiple messages
+        let streamingMessages = {}; // { speakerId: { speaker_name, accumulated_text, cssClass, element } }
+
         // ─── Status ───────────────────────────────────────────────
         function setStatus(type, text) {
             const box = document.getElementById('statusBox');
@@ -1372,12 +1376,50 @@
                     setStatus('thinking', '💭 AI is thinking...');
                     setMicLabel('AI is thinking...');
                     isAIReplying = true;
+                    // Clear previous streaming messages when new response starts
+                    streamingMessages = {};
                     break;
 
                 case 'ai_response_text':
-                    // Show text in transcript
+                    // Accumulate text chunks for the same speaker instead of creating new messages
+                    const speakerId = data.speaker_id || data.speaker_name;
                     const cssClass = data.is_primary ? 'message-ai-primary' : 'message-ai-secondary';
-                    addMessage(data.speaker_name, data.text, cssClass);
+                    
+                    if (!streamingMessages[speakerId]) {
+                        // First chunk from this speaker — create message element
+                        const t = document.getElementById('transcript');
+                        if (t.querySelector('.transcript-empty')) t.innerHTML = '';
+                        
+                        const div = document.createElement('div');
+                        div.className = `message ${cssClass}`;
+                        const icons = { 'message-ai-primary': '🤖', 'message-ai-secondary': '💬' };
+                        
+                        div.innerHTML = `
+            <div class="message-speaker">${icons[cssClass] || '🤖'} ${data.speaker_name}</div>
+            <div class="message-text" id="msg-text-${speakerId}"></div>
+            <div class="message-meta">${new Date().toLocaleTimeString()}</div>`;
+                        
+                        t.appendChild(div);
+                        
+                        streamingMessages[speakerId] = {
+                            speaker_name: data.speaker_name,
+                            accumulated_text: data.text,
+                            cssClass,
+                            element: div,
+                            textElement: div.querySelector(`#msg-text-${speakerId}`)
+                        };
+                    } else {
+                        // Subsequent chunk — accumulate text
+                        streamingMessages[speakerId].accumulated_text += data.text;
+                    }
+                    
+                    // Update the message element with accumulated text
+                    if (streamingMessages[speakerId].textElement) {
+                        streamingMessages[speakerId].textElement.textContent = streamingMessages[speakerId].accumulated_text;
+                        // Auto-scroll to bottom as text updates
+                        const t = document.getElementById('transcript');
+                        t.scrollTop = t.scrollHeight;
+                    }
                     break;
 
                 case 'ai_audio_complete':

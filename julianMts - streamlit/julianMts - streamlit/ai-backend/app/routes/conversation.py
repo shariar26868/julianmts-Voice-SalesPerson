@@ -538,8 +538,12 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                             transcribed_text = await whisper_service.transcribe_audio_stream(audio_chunks)
                             
                             if not transcribed_text or transcribed_text.strip() == "":
-                                print("⚠️ Empty transcription, using fallback")
-                                transcribed_text = "I said something but it wasn't clear."
+                                print("⚠️ Empty transcription — audio too short or silent, skipping AI response")
+                                await websocket.send_json({
+                                    "type": "transcription_empty",
+                                    "message": "Audio was too short or silent. Please speak clearly and try again."
+                                })
+                                continue
                             
                             print(f"✅ Transcription: {transcribed_text}")
                             
@@ -552,8 +556,7 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                                 "type": "error",
                                 "message": f"Speech recognition failed: {str(e)}"
                             })
-                            
-                            transcribed_text = "Sorry, I couldn't understand that."
+                            continue
                         
                         await websocket.send_json({
                             "type": "transcription",

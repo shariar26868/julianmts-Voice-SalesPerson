@@ -562,6 +562,8 @@ CRITICAL CONVERSATION RULES:
 - Always use contractions (I'm, we've, that's, don't, can't).
 - React emotionally and directly to the salesperson's specific point before moving to your next point.
 - Avoid formal, robotic phrases (e.g., "I would be happy to", "Certainly", "As a representative").
+- If you do NOT understand the salesperson's message, explicitly acknowledge the confusion first with a natural phrase such as "I'm not sure I followed that — could you give me a bit more detail?" or "I didn't quite catch that — could you clarify?" Do NOT silently rephrase or repeat a question you already asked.
+- If a question you want to ask already appears in the recent conversation, do NOT repeat it verbatim or paraphrase it without first acknowledging you are returning to it.
 - NO JSON, NO labels, NO formatting, NO emojis — raw conversational speech only."""
 
             messages = [{"role": "system", "content": system_prompt}]
