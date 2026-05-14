@@ -112,16 +112,22 @@ import struct
 client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 # Minimum combined audio size to attempt transcription.
-# Audio below this threshold is too short to contain real speech.
 # ~0.25 seconds of audio at typical WebM/Opus bitrates.
 MIN_AUDIO_BYTES = 4000
 
-# Known phrases Whisper hallucinates on near-silent or very short audio.
+# Phrases Whisper is known to hallucinate on TRULY silent / near-empty audio.
+# Keep this list TIGHT — do NOT add real conversational words.
+# The filter is also gated on audio length (see transcribe_audio_stream).
 HALLUCINATION_PATTERNS = {
-    "thank you", "thanks", "bye", "goodbye",
-    "you too", "see you", "okay", "ok",
-    "sure", "alright", "uh", "um", "hmm",
-    "you", "the", "a", "i",
+    # Whisper's most common silent-audio hallucinations (confirmed empirically)
+    "thank you for watching",
+    "thanks for watching",
+    "thank you for listening",
+    "please subscribe",
+    "subtitles by",
+    "www.",
+    ".",
+    "",
 }
 
 
@@ -159,7 +165,18 @@ class WhisperService:
         return wav_buffer.getvalue()
 
     def _detect_audio_format(self, audio_bytes: bytes) -> str:
-        """Detect audio format from magic bytes"""
+        """
+        Detect audio format from magic bytes.
+        
+        ⚠️ Browser MediaRecorder quirk: on the 2nd+ recording the WebM
+        initialization segment (EBML magic: \x1a\x45\xdf\xa3) may NOT be
+        at offset 0 — it can appear anywhere in the first ~512 bytes because
+        the browser appends it after one or more continuation chunks.
+        We therefore scan the entire header region instead of checking only
+        the very first 4 bytes.
+        """
+        header = audio_bytes[:512]  # scan first 512 bytes
+
         if audio_bytes[:4] == b'RIFF':
             return 'wav'
         elif audio_bytes[:3] == b'ID3' or (audio_bytes[:2] == b'\xff\xfb') or (audio_bytes[:2] == b'\xff\xf3'):
@@ -170,7 +187,8 @@ class WhisperService:
             return 'flac'
         elif audio_bytes[4:8] == b'ftyp':
             return 'm4a'
-        elif audio_bytes[:4] == b'\x1a\x45\xdf\xa3':
+        elif b'\x1a\x45\xdf\xa3' in header:
+            # WebM EBML magic found anywhere in the header region
             return 'webm'
         else:
             return 'unknown'
@@ -198,12 +216,14 @@ class WhisperService:
                 audio_file.name = f"audio.{fmt}"
                 print(f"✅ Using detected format: {fmt}")
             else:
-                # Unknown/raw format — wrap in WAV
-                print("⚠️ Unknown format — wrapping PCM in WAV header...")
-                wav_bytes = self._create_wav_from_pcm(audio_bytes)
-                audio_file = io.BytesIO(wav_bytes)
-                audio_file.name = "audio.wav"
-                print(f"✅ Wrapped as WAV: {len(wav_bytes)} bytes")
+                # Browser MediaRecorder ALWAYS produces WebM/Opus.
+                # If magic bytes weren't found (e.g. truncated or mid-stream
+                # chunk without EBML header), treat as webm — never as raw PCM.
+                # Wrapping as fake WAV causes Whisper to return empty strings.
+                print("⚠️ Unknown format — defaulting to webm (browser MediaRecorder always produces WebM)")
+                audio_file = io.BytesIO(audio_bytes)
+                audio_file.name = "audio.webm"
+                print(f"✅ Treating as webm: {len(audio_bytes)} bytes")
             
             print("🔄 Calling Whisper API...")
             
@@ -270,10 +290,10 @@ class WhisperService:
             result = await self.transcribe_audio(combined_audio)
 
             # Post-call hallucination filter
+            # Only discard known Whisper silent-audio artifacts.
+            # Do NOT discard short but valid replies like "okay", "sure", "hmm".
             normalized = result.lower().strip().rstrip(".,!?")
-            if normalized in HALLUCINATION_PATTERNS or (
-                len(normalized.split()) <= 1 and len(normalized) < 10
-            ):
+            if normalized in HALLUCINATION_PATTERNS:
                 print(f"⚠️ Hallucination detected, discarding: '{result}'")
                 return ""
 
