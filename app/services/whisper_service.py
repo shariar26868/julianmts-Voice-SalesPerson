@@ -280,6 +280,35 @@ class WhisperService:
                 print("⚠️ No valid audio chunks after processing")
                 return ""
             
+            # ── WebM chunk reordering ──────────────────────────────────────────
+            # Browser MediaRecorder quirk: on the 2nd+ recording the WebM
+            # initialization segment (containing the EBML magic \x1a\x45\xdf\xa3)
+            # may NOT be the first chunk delivered — it can arrive at index 1 or 2.
+            # Concatenating chunks in arrival order produces a structurally invalid
+            # WebM file (header not at offset 0), which Whisper rejects with 400.
+            #
+            # Fix: find whichever chunk contains the EBML magic and move it to
+            # the front so the combined bytes form a valid WebM container.
+            WEBM_MAGIC = b'\x1a\x45\xdf\xa3'
+            init_idx = None
+            for i, chunk in enumerate(processed_chunks):
+                if WEBM_MAGIC in chunk[:64]:   # magic is always within first 64 bytes of the init chunk
+                    init_idx = i
+                    break
+
+            if init_idx is not None and init_idx != 0:
+                print(f"🔧 WebM init chunk found at index {init_idx} — moving to front for valid container")
+                processed_chunks = (
+                    [processed_chunks[init_idx]]
+                    + processed_chunks[:init_idx]
+                    + processed_chunks[init_idx + 1:]
+                )
+            elif init_idx == 0:
+                print("✅ WebM init chunk already at front")
+            else:
+                print("⚠️ WebM init chunk not found in first 64 bytes of any chunk — sending as-is")
+            # ──────────────────────────────────────────────────────────────────
+
             combined_audio = b''.join(processed_chunks)
             print(f"📦 Combined audio size: {len(combined_audio)} bytes")
             
