@@ -570,15 +570,21 @@ CRITICAL CONVERSATION RULES:
 
             for turn in conversation_history[-8:]:
                 role = "assistant" if turn.get("speaker") != "salesperson" else "user"
-                messages.append({"role": role, "content": turn.get("text", "")})
+                # Truncate long AI turns in history to avoid the model copying them
+                text = turn.get("text", "")
+                if role == "assistant" and len(text) > 120:
+                    text = text[:120] + "..."
+                messages.append({"role": role, "content": text})
 
             messages.append({"role": "user", "content": current_message})
 
             stream = await client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=messages,
-                temperature=0.9,
-                max_tokens=120,
+                temperature=0.95,
+                max_tokens=80,
+                presence_penalty=0.8,
+                frequency_penalty=0.8,
                 stream=True
             )
 
