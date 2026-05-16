@@ -859,6 +859,13 @@ from fastapi.responses import StreamingResponse
 
 router = APIRouter(prefix="/api/conversation", tags=["Conversation"])
 
+# Phrases that, when detected in user speech/text, should immediately end the meeting
+END_PHRASES = [
+    "goodbye", "good bye", "bye", "see you", "see you soon",
+    "thank you", "thanks", "meet you tomorrow", "talk to you later",
+    "that's all", "that is all", "i'm done", "i am done"
+]
+
 
 async def _get_rep_voice_and_personality(rep: Dict) -> tuple:
     """Extract voice_id and personality from rep dict"""
@@ -913,6 +920,17 @@ async def send_message(
             raise HTTPException(status_code=404, detail="Meeting not found")
         if meeting["status"] != "active":
             raise HTTPException(status_code=400, detail="Meeting is not active")
+        # Check if meeting already passed expected end time
+        expected_end = meeting.get("expected_end_time")
+        if expected_end and current_timestamp() >= expected_end:
+            # mark meeting completed
+            started_at = meeting.get("started_at")
+            ended_at = current_timestamp()
+            duration_seconds = 0
+            if started_at:
+                duration_seconds = (ended_at - started_at).total_seconds()
+            await meeting_collection.update_one({"_id": meeting_id}, {"$set": {"status": "completed", "ended_at": ended_at, "total_duration_seconds": duration_seconds}})
+            return build_api_response(success=True, message="Meeting already ended due to scheduled end time")
         
         conversation_collection = get_conversation_collection()
         conversation = await conversation_collection.find_one({"meeting_id": meeting_id})
@@ -953,7 +971,17 @@ async def send_message(
             "duration_seconds": msg_duration, "created_at": current_timestamp()
         }
         conversation_history.append(salesperson_turn)
-        
+
+        # Check for user-triggered end phrases
+        msg_lower = message.lower()
+        end_requested = False
+        for phrase in END_PHRASES:
+            if phrase in msg_lower:
+                # mark meeting to end after agent responds
+                await meeting_collection.update_one({"_id": meeting_id}, {"$set": {"end_after_response": True}})
+                end_requested = True
+                break
+
         # Get context
         salesperson = await get_salesperson_collection().find_one({"_id": meeting["salesperson_id"]})
         company     = await get_company_collection().find_one({"_id": meeting["company_id"]})
@@ -1053,28 +1081,41 @@ async def send_message(
         primary_b64   = base64.b64encode(primary_audio).decode() if primary_audio else None
         secondary_b64 = base64.b64encode(secondary_audio).decode() if secondary_audio else None
         
-        return build_api_response(
-            success=True,
-            data={
-                "primary_response": {
-                    "speaker_id": primary_rep["id"], "speaker_name": primary_rep["name"],
-                    "speaker_role": primary_rep["role"], "response_text": primary_text,
-                    "audio_url": primary_audio_url, "audio_base64": primary_b64,
-                    "audio_mime_type": "audio/mpeg", "turn_number": primary_turn_number
-                },
-                "secondary_response": {
-                    "speaker_id": secondary_rep["id"] if secondary_rep else None,
-                    "speaker_name": secondary_rep["name"] if secondary_rep else None,
-                    "response_text": secondary_text,
-                    "audio_base64": secondary_b64,
-                    "audio_mime_type": "audio/mpeg",
-                    "turn_number": secondary_turn_number
-                } if secondary_rep and secondary_text else None,
-                "salesperson_turn": current_turn,
-                "reasoning": ai_data.get("reasoning", "")
+        # After saving turns, if an end was requested earlier, end the meeting now
+        meeting_latest = await meeting_collection.find_one({"_id": meeting_id})
+        ended_payload = None
+        if meeting_latest.get("end_after_response"):
+            started_at = meeting_latest.get("started_at")
+            ended_at = current_timestamp()
+            duration_seconds = 0
+            if started_at:
+                duration_seconds = (ended_at - started_at).total_seconds()
+            await meeting_collection.update_one({"_id": meeting_id}, {"$set": {"status": "completed", "ended_at": ended_at, "total_duration_seconds": duration_seconds, "end_after_response": False}})
+            ended_payload = {"ended_at": ended_at, "duration_seconds": duration_seconds}
+
+        response_data = {
+            "primary_response": {
+                "speaker_id": primary_rep["id"], "speaker_name": primary_rep["name"],
+                "speaker_role": primary_rep["role"], "response_text": primary_text,
+                "audio_url": primary_audio_url, "audio_base64": primary_b64,
+                "audio_mime_type": "audio/mpeg", "turn_number": primary_turn_number
             },
-            message="Message processed"
-        )
+            "secondary_response": {
+                "speaker_id": secondary_rep["id"] if secondary_rep else None,
+                "speaker_name": secondary_rep["name"] if secondary_rep else None,
+                "response_text": secondary_text,
+                "audio_base64": secondary_b64,
+                "audio_mime_type": "audio/mpeg",
+                "turn_number": secondary_turn_number
+            } if secondary_rep and secondary_text else None,
+            "salesperson_turn": current_turn,
+            "reasoning": ai_data.get("reasoning", "")
+        }
+
+        if ended_payload:
+            response_data["meeting_ended"] = ended_payload
+
+        return build_api_response(success=True, data=response_data, message="Message processed")
     
     except HTTPException:
         raise
@@ -1562,6 +1603,17 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                             })
                             continue
                         print(f"✅ Transcription: {transcribed}")
+                        # Check for user-triggered end phrases in live transcription
+                        msg_lower = transcribed.lower()
+                        end_requested = False
+                        for phrase in END_PHRASES:
+                            if phrase in msg_lower:
+                                # mark meeting to end after AI responds
+                                await meeting_col.update_one({"_id": meeting_id}, {"$set": {"end_after_response": True}})
+                                end_requested = True
+                                break
+                        if end_requested:
+                            await websocket.send_json({"type": "meeting_will_end", "message": "Meeting will end after agent response"})
                     except Exception as e:
                         print(f"❌ Whisper error: {e}")
                         await websocket.send_json({"type": "error", "message": f"Speech recognition failed: {str(e)}"})
@@ -1592,6 +1644,18 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     conv_history.append(salesperson_turn)
                     
                     # --- STREAMING PIPELINE START ---
+                    # Check scheduled end time just before generating AI response
+                    meeting_latest = await meeting_col.find_one({"_id": meeting_id})
+                    exp_end = meeting_latest.get("expected_end_time")
+                    if exp_end and current_timestamp() >= exp_end:
+                        started_at = meeting_latest.get("started_at")
+                        ended_at = current_timestamp()
+                        duration_seconds = 0
+                        if started_at:
+                            duration_seconds = (ended_at - started_at).total_seconds()
+                        await meeting_col.update_one({"_id": meeting_id}, {"$set": {"status": "completed", "ended_at": ended_at, "total_duration_seconds": duration_seconds}})
+                        await websocket.send_json({"type": "meeting_ended", "message": "Meeting ended due to scheduled end time", "ended_at": ended_at.isoformat()})
+                        break
                     
                     # Pick responder using round-robin across ALL reps
                     last_speaker_id = None
@@ -1738,6 +1802,16 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                                 for t in turns_to_save
                             ]
                         })
+                        # If end was requested earlier, now end the meeting and notify client
+                        meeting_now = await meeting_col.find_one({"_id": meeting_id})
+                        if meeting_now.get("end_after_response"):
+                            started_at = meeting_now.get("started_at")
+                            ended_at = current_timestamp()
+                            duration_seconds = 0
+                            if started_at:
+                                duration_seconds = (ended_at - started_at).total_seconds()
+                            await meeting_col.update_one({"_id": meeting_id}, {"$set": {"status": "completed", "ended_at": ended_at, "total_duration_seconds": duration_seconds, "end_after_response": False}})
+                            await websocket.send_json({"type": "meeting_ended", "message": "Meeting ended by user phrase after agent response", "ended_at": ended_at.isoformat(), "duration_seconds": duration_seconds})
                     except Exception as e:
                         print(f"❌ DB save error: {e}")
             

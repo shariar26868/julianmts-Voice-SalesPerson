@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from datetime import timedelta
 from typing import List
 from app.models.schemas import MeetingCreate, MeetingResponse
 from app.config.database import (
@@ -81,6 +82,7 @@ async def create_meeting(meeting_data: MeetingCreate):
             "top_5_questions": top_questions,
             "personality": meeting_data.personality.value,
             "duration_minutes": meeting_data.duration_minutes,
+            "expected_end_time": meeting_data.end_time if getattr(meeting_data, 'end_time', None) else None,
             "difficulty": meeting_data.difficulty.value,
             "sales_methodology": meeting_data.custom_sales_methodology if meeting_data.sales_methodology.value == "Other" and meeting_data.custom_sales_methodology else meeting_data.sales_methodology.value,
             "methodology_description": meeting_data.methodology_description or "",
@@ -189,12 +191,19 @@ async def start_meeting(meeting_id: str):
             )
         
         # Update status to active (works from both pending and completed)
+        started_at = current_timestamp()
+        # compute expected end time if not provided in meeting doc
+        expected_end = meeting.get("expected_end_time")
+        if not expected_end:
+            expected_end = started_at + timedelta(minutes=int(meeting.get("duration_minutes", 30)))
+
         await meeting_collection.update_one(
             {"_id": meeting_id},
             {
                 "$set": {
                     "status": "active",
-                    "started_at": current_timestamp()
+                    "started_at": started_at,
+                    "expected_end_time": expected_end
                 }
             }
         )
@@ -230,11 +239,11 @@ async def end_meeting(meeting_id: str):
         # Calculate total duration
         started_at = meeting.get("started_at")
         ended_at = current_timestamp()
-        
+
         duration_seconds = 0
         if started_at:
             duration_seconds = (ended_at - started_at).total_seconds()
-        
+
         # Update status to completed
         await meeting_collection.update_one(
             {"_id": meeting_id},

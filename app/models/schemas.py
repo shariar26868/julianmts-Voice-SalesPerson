@@ -359,6 +359,7 @@ class MeetingCreate(BaseModel):
     meeting_goal: str
     personality: PersonalityType = PersonalityType.NICE
     duration_minutes: int = 30
+    end_time: Optional[datetime] = None  # explicit ISO end time (overrides duration if provided)
     difficulty: DifficultyLevel = DifficultyLevel.BEGINNER
     sales_methodology: SalesMethodology = SalesMethodology.MEDDIC
     custom_sales_methodology: Optional[str] = None  # used when sales_methodology = "Other"
@@ -375,6 +376,7 @@ class MeetingResponse(BaseModel):
     top_5_questions: List[str]
     personality: str
     duration_minutes: int
+    end_time: Optional[datetime] = None
     difficulty: str
     sales_methodology: str
     status: str
