@@ -112,6 +112,10 @@ async def create_meeting(meeting_data: MeetingCreate):
             success=True,
             data={
                 "meeting_id": meeting_id,
+                "meeting_mode": meeting_data.meeting_mode.value,
+                "meeting_personality": meeting_data.personality.value,
+                "duration_minutes": meeting_data.duration_minutes,
+                "difficulty": meeting_data.difficulty.value,
                 "top_5_questions": top_questions,
                 "representatives": reps_response,
                 "status": "pending"
