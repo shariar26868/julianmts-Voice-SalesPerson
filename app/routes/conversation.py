@@ -1559,9 +1559,18 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
             "meeting_id": meeting_id,
             "session_id": session_id,
             "attempt_number": attempt_number,
+            "meeting_mode": meeting.get("meeting_mode"),
+            "duration_minutes": meeting.get("duration_minutes"),
+            "difficulty": meeting.get("difficulty"),
+            "meeting_personality": meeting.get("personality"),
             "representatives": [
-                {"id": r["id"], "name": r["name"], "role": r["role"],
-                 "personality": r.get("personality_traits", [])}
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "role": r["role"],
+                    "personality": r.get("personality_traits") or r.get("personality") or [meeting.get("personality", "")],
+                    "is_decision_maker": r.get("is_decision_maker", False)
+                }
                 for r in representatives
             ]
         })
