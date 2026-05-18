@@ -875,6 +875,22 @@ async def _get_rep_voice_and_personality(rep: Dict) -> tuple:
     return voice_id, personality
 
 
+def _get_rep_personality_list(rep: Dict, meeting_personality: Optional[str]) -> List[str]:
+    """Return a normalized personality list for reps, with meeting fallback."""
+    rep_traits = rep.get("personality_traits")
+    rep_personality = rep.get("personality")
+
+    if isinstance(rep_traits, list) and rep_traits:
+        return rep_traits
+    if isinstance(rep_personality, list) and rep_personality:
+        return rep_personality
+    if isinstance(rep_personality, str) and rep_personality.strip():
+        return [rep_personality.strip()]
+    if isinstance(meeting_personality, str) and meeting_personality.strip():
+        return [meeting_personality.strip()]
+    return ["neutral"]
+
+
 async def _generate_audio(text: str, voice_id: str, personality: str) -> bytes:
     """Generate TTS audio, return bytes or empty"""
     try:
@@ -1568,7 +1584,7 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     "id": r["id"],
                     "name": r["name"],
                     "role": r["role"],
-                    "personality": r.get("personality_traits") or r.get("personality") or [meeting.get("personality", "")],
+                    "personality": _get_rep_personality_list(r, meeting.get("personality")),
                     "is_decision_maker": r.get("is_decision_maker", False)
                 }
                 for r in representatives
