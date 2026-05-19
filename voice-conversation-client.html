@@ -1362,6 +1362,7 @@
                     document.getElementById('sessionId').textContent = `ID: ${currentSessionId}`;
                     document.getElementById('downloadBtn').disabled = true; // enable after first turn saved
                     if (data.representatives) displayReps(data.representatives);
+                    document.getElementById('transcript').innerHTML = '<div class="transcript-empty">Start speaking — transcript will appear here.</div>';
                     addMessage('System', data.message || 'Connected.', 'message-system');
                     enableMic();
                     loadPastSessions(data.meeting_id);
