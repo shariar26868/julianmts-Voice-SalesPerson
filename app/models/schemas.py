@@ -420,3 +420,23 @@ class AIResponse(BaseModel):
     audio_url: Optional[str] = None
     should_interrupt: bool = False
     confidence_score: float = 1.0
+
+
+# =========================
+# ✅ Role Description Schemas
+# =========================
+
+class RoleDescriptionCreate(BaseModel):
+    role: RoleType
+    description: str = Field(..., min_length=10, description="Behavioral description for this role in AI conversations")
+
+
+class RoleDescriptionUpdate(BaseModel):
+    description: str = Field(..., min_length=10)
+
+
+class RoleDescriptionResponse(BaseModel):
+    id: str
+    role: str
+    description: str
+    updated_at: datetime

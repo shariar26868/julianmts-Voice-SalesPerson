@@ -385,3 +385,87 @@ Return ONLY valid JSON:
 
 # Singleton
 scraper = CompanyScraper()
+
+
+class LinkedInScraper:
+    """
+    Fetch basic public LinkedIn profile data.
+    LinkedIn blocks direct scraping, so we use OpenAI web search
+    to extract publicly available profile information.
+    """
+
+    def __init__(self):
+        self.openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else None
+
+    async def fetch_profile_data(self, linkedin_url: str) -> Dict[str, Any]:
+        """
+        Fetch basic public info from a LinkedIn profile URL.
+        Returns a dict with: name, headline, summary, experience, location
+        """
+        if not linkedin_url or not self.openai_client:
+            return {}
+
+        # Normalize URL
+        url = str(linkedin_url).strip().rstrip("/")
+        if not url.startswith("http"):
+            url = "https://" + url
+
+        print(f"🔗 Fetching LinkedIn data for: {url}")
+
+        try:
+            prompt = f"""Search the web for the LinkedIn profile at this URL: {url}
+
+Extract the following publicly available information:
+- Full name
+- Current job title / headline
+- Current company
+- Location
+- A brief professional summary (2-3 sentences max)
+- Most recent 1-2 job experiences (title + company only)
+
+Return ONLY valid JSON:
+{{
+    "name": "...",
+    "headline": "...",
+    "current_company": "...",
+    "location": "...",
+    "summary": "...",
+    "experience": "..."
+}}
+
+If any field is not found, use null. Do NOT fabricate information."""
+
+            response = await self.openai_client.responses.create(
+                model="gpt-4.1",
+                tools=[{"type": "web_search"}],
+                input=prompt,
+                temperature=0.1,
+            )
+
+            text_output = ""
+            for output in response.output:
+                if output.type == "message":
+                    for content in output.content:
+                        if content.type == "output_text":
+                            text_output += content.text
+
+            if not text_output:
+                return {}
+
+            # Extract JSON from response
+            json_match = re.search(r'\{.*?\}', text_output, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                # Clean nulls
+                data = {k: v for k, v in data.items() if v and v != "null"}
+                print(f"  ✅ LinkedIn data fetched: {list(data.keys())}")
+                return data
+
+        except Exception as e:
+            print(f"  ⚠️ LinkedIn fetch error: {e}")
+
+        return {}
+
+
+# Singletons
+linkedin_scraper = LinkedInScraper()

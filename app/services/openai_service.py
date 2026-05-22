@@ -467,36 +467,96 @@ class OpenAIService:
         conversation_history: List[Dict[str, str]],
         representatives: List[Dict[str, Any]],
         salesperson_data: Dict[str, Any],
-        current_message: str
+        company_data: Dict[str, Any],
+        current_message: str,
+        meeting_goal: str = "",
+        role_descriptions: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
-        """Extremely fast, low-token call to just determine who should speak next."""
+        """
+        Intelligent responder selection using AI.
+        Analyzes: product type, meeting goal, conversation context, rep roles
+        to decide WHO should naturally respond next — no keyword matching.
+        
+        Fast & cheap: gpt-4o-mini, max 80 tokens, JSON only.
+        """
         try:
-            prompt = f"Product: {salesperson_data.get('product_name','Unknown')}. "
-            prompt += "Reps: " + ", ".join([f"{r.get('name')} (ID: {r.get('id')}, Role: {r.get('role')})" for r in representatives]) + ". "
-            prompt += "Based on the conversation, output JSON with the ID and Name of the single person who should respond to the Salesperson's message. "
-            prompt += 'Format: {"primary_rep_id": "...", "primary_rep_name": "..."}'
-            
-            messages = [{"role": "system", "content": prompt}]
-            
-            # small history context
+            # Build rep list with role context
+            reps_info = []
+            for r in representatives:
+                role_key = r.get("role", "").lower().replace(" ", "_")
+                role_desc = ""
+                if role_descriptions:
+                    role_desc = role_descriptions.get(role_key, "")
+                    if not role_desc:
+                        for k, v in role_descriptions.items():
+                            if k in role_key or role_key in k:
+                                role_desc = v
+                                break
+                line = f"- ID={r.get('id')} | Name={r.get('name')} | Role={r.get('role')}"
+                if role_desc:
+                    line += f" | Expertise: {role_desc[:120]}"
+                reps_info.append(line)
+
+            product_name = salesperson_data.get("product_name", "Unknown") if salesperson_data else "Unknown"
+            product_desc = salesperson_data.get("description", "") if salesperson_data else ""
+            company_info = company_data.get("company_data", {}) if company_data else {}
+            industry = company_info.get("industry", "")
+
+            # Last 2 speakers (to avoid same person twice in a row)
+            recent_speakers = []
+            for t in reversed(conversation_history[-6:]):
+                if t.get("speaker") != "salesperson" and t.get("speaker_name") not in recent_speakers:
+                    recent_speakers.append(t.get("speaker_name"))
+                if len(recent_speakers) >= 2:
+                    break
+
+            system_prompt = f"""You are a meeting facilitator deciding who should speak next in a sales meeting.
+
+PRODUCT BEING SOLD: {product_name} — {product_desc[:150]}
+INDUSTRY: {industry or "General"}
+MEETING GOAL: {meeting_goal or "Sales discovery"}
+
+PEOPLE IN THE MEETING:
+{chr(10).join(reps_info)}
+
+RECENTLY SPOKE: {", ".join(recent_speakers) if recent_speakers else "No one yet"}
+
+RULES:
+- Pick the person whose ROLE is most relevant to what the salesperson just said
+- Consider the product type — a medicine company rep won't ask tech questions
+- Consider the meeting goal — discovery = open questions, closing = decision/budget focus
+- Do NOT pick someone who just spoke unless they are the only relevant person
+- If the salesperson addressed someone by name, always pick that person
+- Return ONLY JSON: {{"primary_rep_id": "...", "primary_rep_name": "...", "reason": "..."}}"""
+
+            messages = [{"role": "system", "content": system_prompt}]
+
+            # Last 4 turns for context
             for turn in conversation_history[-4:]:
-                messages.append({
-                    "role": "user",
-                    "content": f"[{turn['speaker_name']}]: {turn['text']}"
-                })
+                role = "assistant" if turn.get("speaker") != "salesperson" else "user"
+                messages.append({"role": role, "content": f"[{turn['speaker_name']}]: {turn['text']}"})
+
             messages.append({"role": "user", "content": f"[Salesperson]: {current_message}"})
-            
+
             response = await client.chat.completions.create(
-                model="gpt-4o-mini",  # Use fast model
+                model="gpt-4o-mini",
                 messages=messages,
-                temperature=0.3,
-                max_tokens=60,
+                temperature=0.2,
+                max_tokens=80,
                 response_format={"type": "json_object"}
             )
-            
+
             raw = response.choices[0].message.content
             result = json.loads(raw)
-            return self._validate_response({"primary_rep_id": result.get("primary_rep_id"), "primary_rep_name": result.get("primary_rep_name"), "primary_response": "ok", "reasoning": "fast_intent"}, representatives)
+            print(f"🧠 AI picked responder: {result.get('primary_rep_name')} — {result.get('reason', '')}")
+
+            return self._validate_response({
+                "primary_rep_id": result.get("primary_rep_id"),
+                "primary_rep_name": result.get("primary_rep_name"),
+                "primary_response": "ok",
+                "reasoning": result.get("reason", "AI-selected")
+            }, representatives)
+
         except Exception as e:
             print(f"❌ fast_identify_responder error: {e}")
             return self._create_fallback_response(representatives, current_message, conversation_history)
@@ -512,13 +572,14 @@ class OpenAIService:
         current_message: str,
         primary_rep: Dict[str, Any],
         methodology_prompt: str = "",
-        admin_system_prompt: str = ""
+        admin_system_prompt: str = "",
+        role_descriptions: Optional[Dict[str, str]] = None,
     ):
         """Stream plain text response as the primary rep — NO JSON.
         
         Priority:
           - admin_system_prompt set → use ONLY that (methodology + inbuilt ignored)
-          - admin_system_prompt empty → inbuilt default + methodology (original behavior)
+          - admin_system_prompt empty → inbuilt default + full context + methodology
         """
         try:
             rep_name = primary_rep.get('name', 'Representative')
@@ -528,11 +589,10 @@ class OpenAIService:
 
             if admin_system_prompt:
                 # ── Admin prompt mode: use exactly what admin wrote ──────────
-                # No inbuilt personality guide, no methodology injected.
                 system_prompt = admin_system_prompt
                 print(f"🔐 [stream_response] Using admin system prompt ({len(admin_system_prompt)} chars)")
             else:
-                # ── Default mode: inbuilt prompt + methodology ───────────────
+                # ── Default mode: inbuilt prompt + full context + methodology ─
                 personality_guide = {
                     "angry": "You are irritated and impatient. Short sentences. Challenge everything.",
                     "arrogant": "You are condescending and dismissive. Name-drop. Act superior.",
@@ -541,27 +601,124 @@ class OpenAIService:
                     "nice": "You are friendly and collaborative. Positive energy.",
                     "analytical": "You are methodical and skeptical. Need proof and data.",
                     "neutral": "You are professional and balanced.",
+                    "professional": "You are formal, precise, and business-focused.",
+                    "casual": "You are relaxed and informal, like talking to a colleague.",
+                    "direct": "You are blunt and to the point. No fluff.",
+                    "cool": "You are calm, confident, and unimpressed.",
+                    "not_well": "You are distracted, slightly irritable, and not fully engaged.",
                 }.get(personality, "You are professional.")
 
-                product = salesperson_data.get('product_name', 'the product') if salesperson_data else 'the product'
+                # ── Product context ──────────────────────────────────────────
+                product_name = salesperson_data.get('product_name', 'the product') if salesperson_data else 'the product'
+                product_desc = salesperson_data.get('description', '') if salesperson_data else ''
+                product_url  = salesperson_data.get('product_url', '') if salesperson_data else ''
 
-                system_prompt = f"""You are {rep_name}, {rep_role} at a company being pitched to.
-{personality_guide}
-Product being pitched: {product}
-Rep notes: {primary_rep.get('notes', 'N/A')}"""
+                # ── Company context ──────────────────────────────────────────
+                company_context = ""
+                if company_data:
+                    c = company_data.get('company_data', {})
+                    company_url  = company_data.get('company_url', 'N/A')
+                    industry     = c.get('industry', 'N/A')
+                    size         = c.get('company_size', 'N/A')
+                    revenue      = c.get('revenue', 'N/A')
+                    hq           = c.get('headquarters', 'N/A')
+                    tech_stack   = c.get('wappalyzer_tech_stack', [])
+                    news         = c.get('latest_news', [])
+                    fin          = c.get('financial_statements') or {}
+                    hiring       = c.get('hiring_data') or {}
+                    reviews      = c.get('customer_reviews') or {}
 
+                    company_context = f"""
+COMPANY YOU WORK FOR:
+- URL: {company_url}
+- Industry: {industry} | Size: {size} | HQ: {hq}
+- Revenue: {revenue}"""
+
+                    if tech_stack:
+                        company_context += f"\n- Tech Stack: {', '.join(tech_stack[:8])}"
+                    if fin.get('yoy_growth') or fin.get('arr'):
+                        company_context += f"\n- Financials: YoY Growth={fin.get('yoy_growth','N/A')} | ARR={fin.get('arr','N/A')}"
+                    if hiring.get('hiring_summary'):
+                        company_context += f"\n- Hiring: {hiring['hiring_summary']}"
+                    if reviews.get('summary'):
+                        company_context += f"\n- Customer Reviews: {reviews['summary']} (Rating: {reviews.get('rating','N/A')})"
+                    if news:
+                        company_context += f"\n- Recent News: {' | '.join(news[:3])}"
+
+                # ── Rep context (LinkedIn + role description) ────────────────
+                rep_context = f"YOUR IDENTITY:\n- Name: {rep_name} | Role: {rep_role}"
+                rep_context += f"\n- Decision Maker: {primary_rep.get('is_decision_maker', False)}"
+
+                if primary_rep.get('notes'):
+                    rep_context += f"\n- Personal Notes: {primary_rep['notes']}"
+
+                if primary_rep.get('linkedin_profile'):
+                    rep_context += f"\n- LinkedIn: {primary_rep['linkedin_profile']}"
+
+                if primary_rep.get('linkedin_data'):
+                    ld = primary_rep['linkedin_data']
+                    if ld.get('headline'):
+                        rep_context += f"\n- LinkedIn Headline: {ld['headline']}"
+                    if ld.get('summary'):
+                        rep_context += f"\n- LinkedIn Summary: {ld['summary'][:200]}"
+                    if ld.get('experience'):
+                        rep_context += f"\n- Experience: {ld['experience'][:150]}"
+
+                # Role description from admin panel
+                role_key = rep_role.lower().replace(" ", "_") if rep_role else ""
+                role_desc = ""
+                if role_descriptions and role_key in role_descriptions:
+                    role_desc = role_descriptions[role_key]
+                elif role_descriptions:
+                    # Try partial match
+                    for k, v in role_descriptions.items():
+                        if k in role_key or role_key in k:
+                            role_desc = v
+                            break
+
+                if role_desc:
+                    rep_context += f"\n- Role Behavior Guide: {role_desc}"
+
+                # ── Other reps in the meeting ────────────────────────────────
+                other_reps = [r for r in representatives if r.get('id') != primary_rep.get('id')]
+                other_reps_context = ""
+                if other_reps:
+                    other_reps_context = "\nOTHER PEOPLE IN THIS MEETING:\n"
+                    for r in other_reps:
+                        other_reps_context += f"- {r.get('name')} ({r.get('role')})"
+                        r_traits = r.get('personality_traits', [])
+                        if r_traits:
+                            other_reps_context += f" — {r_traits[0]} personality"
+                        other_reps_context += "\n"
+
+                system_prompt = f"""You are {rep_name}, {rep_role} at a company being pitched to. You are NOT an AI — you are a real person in a live sales meeting.
+
+{rep_context}
+{company_context}
+{other_reps_context}
+PRODUCT BEING PITCHED TO YOU:
+- Name: {product_name}
+- Description: {product_desc}"""
+
+                if product_url:
+                    system_prompt += f"\n- URL: {product_url}"
+
+                system_prompt += f"""
+
+YOUR PERSONALITY: {personality_guide}
+
+"""
                 if methodology_prompt:
-                    system_prompt += f"\n\nSALES METHODOLOGY CONTEXT:\n{methodology_prompt}"
+                    system_prompt += f"SALES METHODOLOGY CONTEXT (how to challenge the salesperson):\n{methodology_prompt}\n\n"
 
-                system_prompt += """
-
-CRITICAL CONVERSATION RULES:
+                system_prompt += """CRITICAL CONVERSATION RULES:
 - Speak exactly like a real human in a live Zoom meeting. DO NOT sound like an AI assistant.
 - Use natural filler words occasionally where appropriate (e.g., "Look...", "Honestly...", "Well,", "I mean...", "Right.").
 - Keep your responses brief, punchy, and highly conversational (1-3 sentences max). Real people don't monologue in meetings.
 - Always use contractions (I'm, we've, that's, don't, can't).
 - React emotionally and directly to the salesperson's specific point before moving to your next point.
 - Avoid formal, robotic phrases (e.g., "I would be happy to", "Certainly", "As a representative").
+- Use your company knowledge naturally — if they ask about your tech stack, revenue, or team size, you know these things.
 - If you do NOT understand the salesperson's message, explicitly acknowledge the confusion first with a natural phrase such as "I'm not sure I followed that — could you give me a bit more detail?" or "I didn't quite catch that — could you clarify?" Do NOT silently rephrase or repeat a question you already asked.
 - If a question you want to ask already appears in the recent conversation, do NOT repeat it verbatim or paraphrase it without first acknowledging you are returning to it.
 - Do NOT repeat the salesperson's last utterance word-for-word. Start with a response, not a restatement.

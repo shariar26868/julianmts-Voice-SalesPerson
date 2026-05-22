@@ -53,3 +53,6 @@ def get_methodology_prompt_collection():
 
 def get_system_config_collection():
     return mongodb.get_collection("system_config")
+
+def get_role_description_collection():
+    return mongodb.get_collection("role_descriptions")
