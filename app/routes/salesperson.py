@@ -30,12 +30,6 @@ router = APIRouter(prefix="/api/salesperson", tags=["Salesperson"])
                             "product_name": {"type": "string"},
                             "description": {"type": "string"},
                             "product_url": {"type": "string", "nullable": True},
-                            "gender": {
-                                "type": "string",
-                                "enum": ["male", "female"],
-                                "default": "female",
-                                "description": "Gender of the salesperson — controls AI voice pool selection"
-                            },
                             "materials": {
                                 "type": "array",
                                 "items": {
@@ -58,15 +52,6 @@ async def create_salesperson_with_files(request: Request):
     description = form.get("description")
     product_url = form.get("product_url")
     materials = form.getlist("materials")
-    gender_raw = form.get("gender", "female")
-
-    # Validate gender
-    if gender_raw not in ("male", "female"):
-        raise HTTPException(
-            status_code=422,
-            detail=[{"loc": ["body", "gender"], "msg": f"'{gender_raw}' is not a valid gender. Must be 'male' or 'female'.", "type": "value_error"}]
-        )
-    gender = gender_raw
 
     try:
         uploaded_materials = []
@@ -109,7 +94,6 @@ async def create_salesperson_with_files(request: Request):
             "product_name": product_name,
             "product_url": product_url,
             "description": description,
-            "gender": gender,
             "materials": uploaded_materials,
             "created_at": current_timestamp(),
             "updated_at": current_timestamp()
@@ -155,9 +139,6 @@ async def get_salesperson_data(salesperson_id: str):
             raise HTTPException(status_code=404, detail="Salesperson not found")
 
         salesperson["id"] = str(salesperson.pop("_id"))
-        # Backward compatibility: legacy records without gender default to "female"
-        if "gender" not in salesperson or salesperson["gender"] is None:
-            salesperson["gender"] = "female"
 
         return build_api_response(success=True, data=salesperson)
 
@@ -173,18 +154,10 @@ async def update_salesperson_data(
     product_name: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
     product_url: Optional[str] = Form(None),
-    gender: Optional[str] = Form(None),
     materials: Annotated[Optional[List[UploadFile]], File(description="PDF, PPTX, DOC, Images")] = None
 ):
     """Update salesperson data"""
     try:
-        # Validate gender if provided
-        if gender is not None and gender not in ("male", "female"):
-            raise HTTPException(
-                status_code=422,
-                detail=[{"loc": ["body", "gender"], "msg": f"'{gender}' is not a valid gender. Must be 'male' or 'female'.", "type": "value_error"}]
-            )
-
         collection = get_salesperson_collection()
 
         existing = await collection.find_one({"_id": salesperson_id})
@@ -199,8 +172,6 @@ async def update_salesperson_data(
             update_data["description"] = description
         if product_url:
             update_data["product_url"] = product_url
-        if gender:
-            update_data["gender"] = gender
 
         if materials:
             uploaded_materials = []

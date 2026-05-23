@@ -335,6 +335,7 @@ async def add_representatives(
                 "company_id": company_id,
                 "name": representative.name,
                 "role": representative.role,
+                "gender": representative.gender.value if hasattr(representative.gender, 'value') else (representative.gender or "female"),
                 "is_decision_maker": representative.is_decision_maker,
                 "linkedin_profile": linkedin_url,
                 "linkedin_data": linkedin_data,  # ✅ stored for AI context

@@ -262,7 +262,6 @@ class SalespersonCreate(BaseModel):
     product_name: str
     product_url: Optional[HttpUrl] = None
     description: str
-    gender: GenderType = GenderType.FEMALE
 
 
 class SalespersonResponse(BaseModel):
@@ -271,7 +270,6 @@ class SalespersonResponse(BaseModel):
     product_url: Optional[str] = None
     description: str
     materials: List[ProductMaterial] = []
-    gender: str = "female"
     created_at: datetime
 
 
@@ -340,6 +338,7 @@ class CompanyResponse(BaseModel):
 class RepresentativeCreate(BaseModel):
     name: str
     role: str  # accepts any string — CEO, CMO, or custom like "VP of Engineering"
+    gender: GenderType = GenderType.FEMALE
     is_decision_maker: bool = False
     linkedin_profile: Optional[HttpUrl] = None
     notes: Optional[str] = None
@@ -350,8 +349,7 @@ class RepresentativeResponse(BaseModel):
     id: str
     name: str
     role: str
-    # tenure_months: int
-    # personality_traits: List[str]
+    gender: str = "female"
     is_decision_maker: bool
     linkedin_profile: Optional[str]
     notes: Optional[str]
