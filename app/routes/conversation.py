@@ -1630,14 +1630,14 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     combined_salesperson_audio = b"".join(chunks)
 
                     # ── PARALLEL: Whisper STT + DB fetch run at the same time ──
-                    # This hides the DB round-trip behind the Whisper API call,
-                    # saving ~200-400ms per turn.
-                    whisper_task = asyncio.create_task(
+                    # Motor coroutines need an async wrapper to be used with create_task
+                    async def _prefetch_conv():
+                        return await conv_col.find_one({"session_id": session_id})
+
+                    whisper_task      = asyncio.create_task(
                         whisper_service.transcribe_audio_stream(chunks)
                     )
-                    db_prefetch_task = asyncio.create_task(
-                        conv_col.find_one({"session_id": session_id})
-                    )
+                    db_prefetch_task  = asyncio.create_task(_prefetch_conv())
 
                     # Transcribe
                     try:
