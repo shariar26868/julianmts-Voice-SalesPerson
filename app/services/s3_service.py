@@ -493,14 +493,18 @@ class S3Service:
             return None
         
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        filename = f"meetings/{meeting_id}/turns/turn_{turn_number:04d}_{speaker}_{timestamp}.mp3"
+
+        # ✅ Detect actual audio format so the S3 key has the right extension
+        # and ffmpeg can identify it correctly during recording merge.
+        ext, content_type = self._detect_audio_format(audio_bytes)
+        filename = f"meetings/{meeting_id}/turns/turn_{turn_number:04d}_{speaker}_{timestamp}.{ext}"
         
         try:
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=filename,
                 Body=audio_bytes,
-                ContentType='audio/mpeg',
+                ContentType=content_type,
                 Metadata={
                     'meeting_id': meeting_id,
                     'turn_number': str(turn_number),
@@ -509,7 +513,7 @@ class S3Service:
             )
             
             url = f"https://{self.bucket_name}.s3.{settings.AWS_REGION}.amazonaws.com/{filename}"
-            print(f"✅ Audio uploaded to S3: {filename}")
+            print(f"✅ Audio uploaded to S3: {filename} ({len(audio_bytes)} bytes, {ext})")
             return url
             
         except ClientError as e:
@@ -518,6 +522,32 @@ class S3Service:
         except Exception as e:
             print(f"❌ Unexpected error uploading to S3: {e}")
             return None
+
+    def _detect_audio_format(self, audio_bytes: bytes) -> tuple:
+        """
+        Detect audio format from magic bytes.
+        Returns (extension, content_type).
+        """
+        if not audio_bytes or len(audio_bytes) < 8:
+            return ("webm", "audio/webm")
+
+        header = audio_bytes[:512]
+
+        if audio_bytes[:4] == b'RIFF':
+            return ("wav", "audio/wav")
+        elif audio_bytes[:3] == b'ID3' or audio_bytes[:2] in (b'\xff\xfb', b'\xff\xf3', b'\xff\xf2'):
+            return ("mp3", "audio/mpeg")
+        elif audio_bytes[:4] == b'OggS':
+            return ("ogg", "audio/ogg")
+        elif audio_bytes[:4] == b'fLaC':
+            return ("flac", "audio/flac")
+        elif audio_bytes[4:8] == b'ftyp':
+            return ("m4a", "audio/mp4")
+        elif b'\x1a\x45\xdf\xa3' in header:
+            return ("webm", "audio/webm")
+        else:
+            # Browser MediaRecorder always produces WebM — safe default
+            return ("webm", "audio/webm")
     
     async def upload_document(
         self,

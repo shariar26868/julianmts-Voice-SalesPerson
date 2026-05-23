@@ -1626,7 +1626,15 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     if not chunks:
                         continue
                     
-                    # Combine raw audio bytes (used for both Whisper AND S3 upload)
+                    # Combine raw audio bytes — reorder WebM init chunk to front
+                    # so the S3-stored file is a valid WebM container for ffmpeg.
+                    _WEBM_MAGIC = b'\x1a\x45\xdf\xa3'
+                    _init_idx = next(
+                        (i for i, c in enumerate(chunks) if _WEBM_MAGIC in c[:64]),
+                        None
+                    )
+                    if _init_idx is not None and _init_idx != 0:
+                        chunks = [chunks[_init_idx]] + chunks[:_init_idx] + chunks[_init_idx + 1:]
                     combined_salesperson_audio = b"".join(chunks)
 
                     # ── PARALLEL: Whisper STT + DB fetch run at the same time ──
