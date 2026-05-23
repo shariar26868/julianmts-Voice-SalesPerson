@@ -1628,12 +1628,23 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     
                     # Combine raw audio bytes (used for both Whisper AND S3 upload)
                     combined_salesperson_audio = b"".join(chunks)
-                    
+
+                    # ── PARALLEL: Whisper STT + DB fetch run at the same time ──
+                    # This hides the DB round-trip behind the Whisper API call,
+                    # saving ~200-400ms per turn.
+                    whisper_task = asyncio.create_task(
+                        whisper_service.transcribe_audio_stream(chunks)
+                    )
+                    db_prefetch_task = asyncio.create_task(
+                        conv_col.find_one({"session_id": session_id})
+                    )
+
                     # Transcribe
                     try:
-                        transcribed = await whisper_service.transcribe_audio_stream(chunks)
+                        transcribed = await whisper_task
                         if not transcribed or transcribed.strip() == "":
                             print("⚠️ Empty transcription — audio too short or silent, skipping AI response")
+                            db_prefetch_task.cancel()
                             await websocket.send_json({
                                 "type": "transcription_empty",
                                 "message": "Audio was too short or silent. Please speak clearly and try again."
@@ -1653,15 +1664,14 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                             await websocket.send_json({"type": "meeting_will_end", "message": "Meeting will end after agent response"})
                     except Exception as e:
                         print(f"❌ Whisper error: {e}")
+                        db_prefetch_task.cancel()
                         await websocket.send_json({"type": "error", "message": f"Speech recognition failed: {str(e)}"})
                         continue
-                    
+
                     await websocket.send_json({"type": "transcription", "text": transcribed, "speaker": "salesperson"})
                     await websocket.send_json({"type": "ai_thinking", "message": "AI is thinking..."})
 
-                    # ── PARALLEL: DB fetch + S3 upload + responder selection ──
-                    # All three run at the same time — don't block the stream
-
+                    # ── PARALLEL: DB fetch already done alongside Whisper ──
                     # Direct address check first (zero latency, no API call needed)
                     msg_lower = transcribed.lower()
                     direct_rep = None
@@ -1674,18 +1684,6 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                         if rep_role and rep_role in msg_lower:
                             direct_rep = rep
                             break
-
-                    # Build tasks to run concurrently
-                    async def _fetch_conv_state():
-                        conv_doc = await conv_col.find_one({"session_id": session_id})
-                        return conv_doc
-
-                    async def _upload_salesperson_audio():
-                        if combined_salesperson_audio:
-                            # We don't know current_turn yet — use a placeholder,
-                            # will be corrected after DB fetch
-                            return combined_salesperson_audio  # return bytes, upload later
-                        return b""
 
                     async def _select_responder(conv_history_snapshot):
                         if direct_rep:
@@ -1704,8 +1702,8 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                                 return rep
                         return representatives[0]
 
-                    # Step 1: fetch DB state (needed for turn number + history)
-                    conversation = await _fetch_conv_state()
+                    # Step 1: use the DB result already fetched in parallel with Whisper
+                    conversation = await db_prefetch_task
                     conv_history = list(conversation.get("turns", []))
                     current_turn = conversation.get("total_turns", len(conv_history)) + 1
 
@@ -1827,26 +1825,34 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                         salesperson_audio_url = await upload_task
                     except Exception:
                         salesperson_audio_url = None
+                    # ✅ Set BEFORE creating _finish_and_save task — closure captures the dict
                     salesperson_turn["audio_url"] = salesperson_audio_url
 
-                    # Upload AI audio + DB save in parallel (background — don't block)
+                    # Capture locals for the closure — avoids loop-variable overwrite bug
+                    _full_audio_bytes   = full_audio_bytes
+                    _full_text          = full_text
+                    _primary_rep        = primary_rep
+                    _primary_turn_num   = primary_turn_number
+                    _salesperson_turn   = dict(salesperson_turn)  # snapshot, not reference
+
+                    # Upload AI audio + DB save in background
                     async def _finish_and_save():
                         ai_audio_url = None
-                        if full_audio_bytes:
+                        if _full_audio_bytes:
                             ai_audio_url = await _upload_audio(
-                                full_audio_bytes, meeting_id, primary_turn_number, primary_rep["id"]
+                                _full_audio_bytes, meeting_id, _primary_turn_num, _primary_rep["id"]
                             )
                         p_turn = {
-                            "turn_number": primary_turn_number,
-                            "speaker": primary_rep["id"],
-                            "speaker_name": primary_rep["name"],
-                            "text": full_text,
+                            "turn_number": _primary_turn_num,
+                            "speaker": _primary_rep["id"],
+                            "speaker_name": _primary_rep["name"],
+                            "text": _full_text,
                             "audio_url": ai_audio_url,
                             "timestamp": format_duration(len(conv_history) * 10),
-                            "duration_seconds": max(1.0, len(full_audio_bytes) / 32000),
+                            "duration_seconds": max(1.0, len(_full_audio_bytes) / 32000),
                             "created_at": current_timestamp()
                         }
-                        turns_to_save = [salesperson_turn, p_turn]
+                        turns_to_save = [_salesperson_turn, p_turn]
                         total_ai_time = p_turn["duration_seconds"]
                         try:
                             await conv_col.update_one(
@@ -1854,10 +1860,10 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                                 {
                                     "$inc": {"salesperson_talk_time": 5.0, "representatives_talk_time": total_ai_time},
                                     "$push": {"turns": {"$each": turns_to_save}},
-                                    "$set": {"total_turns": primary_turn_number}
+                                    "$set": {"total_turns": _primary_turn_num}
                                 }
                             )
-                            print(f"💾 Saved {len(turns_to_save)} turns (up to #{primary_turn_number})")
+                            print(f"💾 Saved {len(turns_to_save)} turns (up to #{_primary_turn_num}) | salesperson audio: {_salesperson_turn.get('audio_url') is not None}")
                         except Exception as e:
                             print(f"❌ DB save error: {e}")
                         return p_turn
