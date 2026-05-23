@@ -891,11 +891,11 @@ def _get_rep_personality_list(rep: Dict, meeting_personality: Optional[str]) -> 
     return ["neutral"]
 
 
-async def _generate_audio(text: str, voice_id: str, personality: str) -> bytes:
+async def _generate_audio(text: str, voice_id: str, personality: str, gender: Optional[str] = None) -> bytes:
     """Generate TTS audio, return bytes or empty"""
     try:
         audio = await elevenlabs_service.text_to_speech(
-            text=text, voice_id=voice_id, personality=personality
+            text=text, voice_id=voice_id, personality=personality, gender=gender
         )
         return audio if audio else b""
     except Exception as e:
@@ -1002,6 +1002,11 @@ async def send_message(
         salesperson = await get_salesperson_collection().find_one({"_id": meeting["salesperson_id"]})
         company     = await get_company_collection().find_one({"_id": meeting["company_id"]})
         
+        # Extract salesperson gender for voice pool selection (legacy records default to "female")
+        salesperson_gender = (salesperson or {}).get("gender") or "female"
+        if salesperson_gender not in ("male", "female"):
+            salesperson_gender = "female"
+        
         rep_col = get_representative_collection()
         representatives = []
         for rid in meeting["representative_ids"]:
@@ -1035,7 +1040,7 @@ async def send_message(
         
         # Primary TTS
         v_id, personality = await _get_rep_voice_and_personality(primary_rep)
-        primary_audio = await _generate_audio(primary_text, v_id, personality)
+        primary_audio = await _generate_audio(primary_text, v_id, personality, salesperson_gender)
         primary_audio_url = await _upload_audio(primary_audio, meeting_id, primary_turn_number, primary_rep["id"])
         
         primary_turn = {
@@ -1061,7 +1066,7 @@ async def send_message(
         
         if secondary_rep and secondary_text:
             v_id2, personality2 = await _get_rep_voice_and_personality(secondary_rep)
-            secondary_audio = await _generate_audio(secondary_text, v_id2, personality2)
+            secondary_audio = await _generate_audio(secondary_text, v_id2, personality2, salesperson_gender)
             secondary_audio_url = await _upload_audio(secondary_audio, meeting_id, secondary_turn_number, secondary_rep["id"])
             secondary_turn = {
                 "turn_number": secondary_turn_number, "speaker": secondary_rep["id"],
@@ -1510,6 +1515,12 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
         salesperson = await get_salesperson_collection().find_one({"_id": meeting["salesperson_id"]})
         company     = await get_company_collection().find_one({"_id": meeting["company_id"]})
 
+        # Extract salesperson gender for voice pool selection (legacy records default to "female")
+        salesperson_gender = (salesperson or {}).get("gender") or "female"
+        if salesperson_gender not in ("male", "female"):
+            salesperson_gender = "female"
+        print(f"🎙️ Salesperson gender: {salesperson_gender}")
+
         # Fetch methodology prompt
         methodology = meeting.get("sales_methodology", "MEDDIC").upper()
         methodology_col = get_methodology_prompt_collection()
@@ -1764,7 +1775,8 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                     audio_stream = elevenlabs_service.stream_tts_websocket(
                         token_stream=token_stream,
                         voice_id=v_id,
-                        personality=personality
+                        personality=personality,
+                        gender=salesperson_gender,
                     )
 
                     full_text = ""

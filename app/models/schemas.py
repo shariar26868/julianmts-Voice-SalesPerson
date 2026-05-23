@@ -253,10 +253,16 @@ class ProductMaterial(BaseModel):
     file_type: str
 
 
+class GenderType(str, Enum):
+    MALE = "male"
+    FEMALE = "female"
+
+
 class SalespersonCreate(BaseModel):
     product_name: str
     product_url: Optional[HttpUrl] = None
     description: str
+    gender: GenderType = GenderType.FEMALE
 
 
 class SalespersonResponse(BaseModel):
@@ -265,6 +271,7 @@ class SalespersonResponse(BaseModel):
     product_url: Optional[str] = None
     description: str
     materials: List[ProductMaterial] = []
+    gender: str = "female"
     created_at: datetime
 
 
