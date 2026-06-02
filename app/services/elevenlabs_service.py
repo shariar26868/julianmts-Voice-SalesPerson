@@ -414,6 +414,22 @@ class ElevenLabsService:
         self._load_voices()
 
     def _load_voices(self):
+        # ── Gender-based voice pools (hardcoded ElevenLabs built-in voices) ──
+        # Female voices
+        self.female_voice_pool = [
+            "21m00Tcm4TlvDq8ikWAM",  # Rachel
+            "EXAVITQu4vr4xnSDxMaL",  # Bella
+            "MF3mGyEYCl7XYWbV9V6O",  # Elli
+            "AZnzlk1XvdvUeBnXmlld",  # Domi
+        ]
+        # Male voices
+        self.male_voice_pool = [
+            "ErXwobaYiN019PkySvjV",  # Antoni
+            "TxGEqnHWrfWFTfGW9XjX",  # Josh
+            "VR6AewLTigWG4xSOukaG",  # Arnold
+            "pNInz6obpgDQGcFmaJgB",  # Adam
+        ]
+
         try:
             if CLIENT_MODE == "new" and client:
                 all_voices = client.voices.get_all()
@@ -430,13 +446,29 @@ class ElevenLabsService:
 
         if not self.available_voices:
             self.available_voices = {
-                "voice_0": "21m00Tcm4TlvDq8ikWAM",
-                "voice_1": "AZnzlk1XvdvUeBnXmlld",
-                "voice_2": "EXAVITQu4vr4xnSDxMaL",
-                "voice_3": "ErXwobaYiN019PkySvjV",
-                "voice_4": "MF3mGyEYCl7XYWbV9V6O",
-                "voice_5": "TxGEqnHWrfWFTfGW9XjX",
+                "voice_0": "21m00Tcm4TlvDq8ikWAM",  # Rachel (female)
+                "voice_1": "AZnzlk1XvdvUeBnXmlld",  # Domi (female)
+                "voice_2": "EXAVITQu4vr4xnSDxMaL",  # Bella (female)
+                "voice_3": "ErXwobaYiN019PkySvjV",  # Antoni (male)
+                "voice_4": "MF3mGyEYCl7XYWbV9V6O",  # Elli (female)
+                "voice_5": "TxGEqnHWrfWFTfGW9XjX",  # Josh (male)
             }
+
+    def _resolve_voice_by_gender(self, gender: Optional[str] = None) -> str:
+        """Select a random voice ID from the appropriate gender pool."""
+        import random
+        g = (gender or "female").lower()
+        if g == "male":
+            pool = self.male_voice_pool
+            if not pool:
+                raise RuntimeError("Male voice pool is empty — cannot select a male voice.")
+            return random.choice(pool)
+        else:
+            # "female" or any unrecognised value → female pool
+            pool = self.female_voice_pool
+            if not pool:
+                raise RuntimeError("Female voice pool is empty — cannot select a female voice.")
+            return random.choice(pool)
 
     def _get_voice_settings(self, personality: str) -> VoiceSettings:
         """Get voice settings based on personality"""
@@ -493,25 +525,24 @@ class ElevenLabsService:
         text: str,
         voice_id: Optional[str] = None,
         personality: str = "neutral",
+        gender: Optional[str] = None,
     ) -> bytes:
         """
         Convert text to speech using ElevenLabs.
         ✅ Uses eleven_turbo_v2 for faster generation.
-        ✅ Returns complete bytes in one call — no chunking.
+        ✅ Gender-based voice pool selection when no explicit voice_id given.
         """
 
         if not text or not text.strip():
             logger.warning("⚠️ Empty text provided to TTS")
             return b""
 
-        # ✅ If voice_id is a real ElevenLabs voice ID (long string), use directly
-        # Otherwise look up from available_voices dict
+        # ✅ If voice_id is a real ElevenLabs voice ID (long string), use directly.
+        # Otherwise resolve from gender-based pool.
         if voice_id and len(voice_id) > 10:
             resolved_voice = voice_id
         else:
-            resolved_voice = self.available_voices.get(
-                voice_id or "voice_0", self.default_voice_id
-            )
+            resolved_voice = self._resolve_voice_by_gender(gender)
 
         settings_obj = self._get_voice_settings(personality)
 
@@ -606,6 +637,7 @@ class ElevenLabsService:
         sentences_stream,
         voice_id: Optional[str] = None,
         personality: str = "neutral",
+        gender: Optional[str] = None,
     ):
         """
         Consumes an async generator of sentences and yields audio chunks.
@@ -616,7 +648,8 @@ class ElevenLabsService:
                 audio_bytes = await self.text_to_speech(
                     text=sentence,
                     voice_id=voice_id,
-                    personality=personality
+                    personality=personality,
+                    gender=gender,
                 )
                 if audio_bytes:
                     yield (sentence, audio_bytes)
@@ -629,6 +662,7 @@ class ElevenLabsService:
         token_stream,
         voice_id: Optional[str] = None,
         personality: str = "neutral",
+        gender: Optional[str] = None,
     ):
         """
         Ultra-low latency TTS using ElevenLabs WebSocket input streaming.
@@ -645,19 +679,19 @@ class ElevenLabsService:
             # Fallback to sentence-based TTS
             from app.utils.stream_helpers import sentence_buffer
             async for item in self.stream_tts_from_sentences(
-                sentence_buffer(token_stream), voice_id=voice_id, personality=personality
+                sentence_buffer(token_stream), voice_id=voice_id,
+                personality=personality, gender=gender
             ):
-                # Map to the new yield format
                 yield ("text", item[0])
                 if item[1]:
                     yield ("audio", item[1])
             return
 
-        # Resolve voice
+        # Resolve voice — explicit voice_id takes priority, then gender pool
         if voice_id and len(str(voice_id)) > 10:
             resolved_voice = voice_id
         else:
-            resolved_voice = self.available_voices.get(voice_id or "voice_0", self.default_voice_id)
+            resolved_voice = self._resolve_voice_by_gender(gender)
 
         settings_obj = self._get_voice_settings(personality)
         model_id = "eleven_turbo_v2_5"

@@ -10,7 +10,7 @@ from app.config.database import (
     get_company_collection, get_representative_collection,
     get_meeting_collection, get_conversation_collection
 )
-from app.services.scraper import scraper
+from app.services.scraper import scraper, linkedin_scraper
 from app.services.openai_service import openai_service
 from app.services.url_validator_service import url_validator
 from app.services.google_search_service import google_search_service
@@ -367,14 +367,12 @@ async def delete_company(company_id: str):
 
 
 
-from typing import List
-
 @router.post("/{company_id}/representatives", response_model=dict)
 async def add_representatives(
     company_id: str,
     representatives: List[RepresentativeCreate]
 ):
-    """Add multiple company representatives"""
+    """Add multiple company representatives. Auto-fetches LinkedIn data if URL provided."""
 
     try:
         company_collection = get_company_collection()
@@ -389,13 +387,25 @@ async def add_representatives(
         for representative in representatives:
             rep_id = generate_id()
 
+            # Auto-fetch LinkedIn data if URL is provided
+            linkedin_url = str(representative.linkedin_profile) if representative.linkedin_profile else None
+            linkedin_data = {}
+            if linkedin_url:
+                try:
+                    linkedin_data = await linkedin_scraper.fetch_profile_data(linkedin_url)
+                    print(f"  🔗 LinkedIn data for {representative.name}: {list(linkedin_data.keys())}")
+                except Exception as e:
+                    print(f"  ⚠️ LinkedIn fetch failed for {representative.name}: {e}")
+
             rep_doc = {
                 "_id": rep_id,
                 "company_id": company_id,
                 "name": representative.name,
                 "role": representative.role,
+                "gender": representative.gender.value if hasattr(representative.gender, 'value') else (representative.gender or "female"),
                 "is_decision_maker": representative.is_decision_maker,
-                "linkedin_profile": str(representative.linkedin_profile) if representative.linkedin_profile else None,
+                "linkedin_profile": linkedin_url,
+                "linkedin_data": linkedin_data,  # ✅ stored for AI context
                 "notes": representative.notes,
                 "voice_id": representative.voice_id,
                 "created_at": current_timestamp()
@@ -443,7 +453,7 @@ async def update_representative(
     rep_id: str,
     representative: RepresentativeCreate
 ):
-    """Update representative information"""
+    """Update representative information. Auto-fetches LinkedIn data if URL changed."""
     
     try:
         rep_collection = get_representative_collection()
@@ -452,11 +462,23 @@ async def update_representative(
         if not existing:
             raise HTTPException(status_code=404, detail="Representative not found")
         
+        # Auto-fetch LinkedIn data if URL is provided and different from existing
+        linkedin_url = str(representative.linkedin_profile) if representative.linkedin_profile else None
+        linkedin_data = existing.get("linkedin_data", {})
+        
+        if linkedin_url and linkedin_url != existing.get("linkedin_profile"):
+            try:
+                linkedin_data = await linkedin_scraper.fetch_profile_data(linkedin_url)
+                print(f"  🔗 Updated LinkedIn data for {representative.name}: {list(linkedin_data.keys())}")
+            except Exception as e:
+                print(f"  ⚠️ LinkedIn fetch failed: {e}")
+        
         update_data = {
             "name": representative.name,
             "role": representative.role,
             "is_decision_maker": representative.is_decision_maker,
-            "linkedin_profile": str(representative.linkedin_profile) if representative.linkedin_profile else None,
+            "linkedin_profile": linkedin_url,
+            "linkedin_data": linkedin_data,
             "notes": representative.notes,
             "voice_id": representative.voice_id,
             "updated_at": current_timestamp()

@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from typing import Optional
 from pydantic import BaseModel
-from app.config.database import get_methodology_prompt_collection, get_system_config_collection
+from app.config.database import get_methodology_prompt_collection, get_system_config_collection, get_role_description_collection
+from app.models.schemas import RoleType, RoleDescriptionCreate, RoleDescriptionUpdate
 from app.utils.helpers import current_timestamp, build_api_response
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
@@ -180,3 +181,150 @@ class SystemPromptUpdate(BaseModel):
 #     col = get_system_config_collection()
 #     await col.delete_one({"_id": SYSTEM_PROMPT_DOC_ID})
 #     return build_api_response(success=True, message="Custom prompt deleted — reverted to built-in default")
+
+
+# ─────────────────────────────────────────────
+# Role Descriptions
+# ─────────────────────────────────────────────
+
+# Default descriptions seeded on first fetch
+DEFAULT_ROLE_DESCRIPTIONS = {
+    "ceo": "The CEO is the top decision-maker. They are strategic, time-constrained, and focused on ROI, company vision, and competitive advantage. They rarely engage in technical details — they want to know the business impact.",
+    "cmo": "The CMO owns brand, demand generation, and customer acquisition. They care about pipeline, conversion rates, and marketing ROI. They are data-driven but also creative and brand-conscious.",
+    "cfo": "The CFO controls the budget and is highly risk-averse. They scrutinize every cost, demand clear ROI justification, and are skeptical of unproven solutions. They ask hard questions about pricing, contracts, and financial risk.",
+    "coo": "The COO focuses on operational efficiency, process improvement, and execution. They want to know how a solution integrates with existing workflows and whether it will disrupt operations.",
+    "cto": "The CTO evaluates technical feasibility, security, scalability, and integration complexity. They are detail-oriented and will challenge technical claims. They care about architecture, APIs, and long-term maintainability.",
+    "vp_sales": "The VP of Sales is focused on revenue targets, sales cycle length, and team productivity. They want to know how a solution helps their team close more deals faster.",
+    "director": "The Director is a mid-level decision influencer. They are practical, focused on team impact, and often act as a bridge between executives and individual contributors. They care about ease of adoption.",
+    "manager": "The Manager is hands-on and focused on day-to-day operations. They are concerned about how a solution affects their team's workload and whether it is easy to use.",
+    "other": "This representative has a custom role. They may have varied priorities and concerns depending on their specific responsibilities within the organization.",
+}
+
+
+async def _seed_role_defaults():
+    """Insert default role descriptions if collection is empty."""
+    col = get_role_description_collection()
+    for role_key, description in DEFAULT_ROLE_DESCRIPTIONS.items():
+        existing = await col.find_one({"_id": role_key})
+        if not existing:
+            await col.insert_one({
+                "_id": role_key,
+                "role": role_key,
+                "description": description,
+                "updated_at": current_timestamp(),
+            })
+
+
+@router.get("/role-descriptions", response_model=dict)
+async def get_all_role_descriptions():
+    """Get descriptions for all role types"""
+    await _seed_role_defaults()
+    col = get_role_description_collection()
+    results = []
+    async for doc in col.find():
+        doc["id"] = str(doc.pop("_id"))
+        results.append(doc)
+    return build_api_response(
+        success=True,
+        data={"role_descriptions": results},
+        message=f"{len(results)} role descriptions found"
+    )
+
+
+@router.get("/role-descriptions/{role}", response_model=dict)
+async def get_role_description(role: RoleType):
+    """Get description for a specific role"""
+    await _seed_role_defaults()
+    col = get_role_description_collection()
+    doc = await col.find_one({"_id": role.value})
+    if not doc:
+        raise HTTPException(status_code=404, detail=f"Role '{role.value}' not found")
+    doc["id"] = str(doc.pop("_id"))
+    return build_api_response(success=True, data=doc)
+
+
+@router.post("/role-descriptions", response_model=dict)
+async def create_or_update_role_description(body: RoleDescriptionCreate):
+    """
+    Create or update a role description.
+    If the role already exists, it will be overwritten.
+    """
+    col = get_role_description_collection()
+    role_key = body.role.value
+
+    await col.update_one(
+        {"_id": role_key},
+        {"$set": {
+            "role": role_key,
+            "description": body.description.strip(),
+            "updated_at": current_timestamp(),
+        }},
+        upsert=True,
+    )
+
+    return build_api_response(
+        success=True,
+        data={"role": role_key},
+        message=f"Role description for '{role_key}' saved successfully"
+    )
+
+
+@router.put("/role-descriptions/{role}", response_model=dict)
+async def update_role_description(role: RoleType, body: RoleDescriptionUpdate):
+    """Update description for a specific role"""
+    await _seed_role_defaults()
+    col = get_role_description_collection()
+    role_key = role.value
+
+    existing = await col.find_one({"_id": role_key})
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Role '{role_key}' not found")
+
+    await col.update_one(
+        {"_id": role_key},
+        {"$set": {
+            "description": body.description.strip(),
+            "updated_at": current_timestamp(),
+        }}
+    )
+
+    return build_api_response(
+        success=True,
+        data={"role": role_key},
+        message=f"Role description for '{role_key}' updated successfully"
+    )
+
+
+@router.delete("/role-descriptions/{role}", response_model=dict)
+async def reset_role_description(role: RoleType):
+    """
+    Reset a role description back to its default.
+    If no default exists (e.g. custom role), the document is deleted.
+    """
+    col = get_role_description_collection()
+    role_key = role.value
+
+    existing = await col.find_one({"_id": role_key})
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Role '{role_key}' not found")
+
+    default_desc = DEFAULT_ROLE_DESCRIPTIONS.get(role_key)
+    if default_desc:
+        # Reset to default instead of deleting
+        await col.update_one(
+            {"_id": role_key},
+            {"$set": {
+                "description": default_desc,
+                "updated_at": current_timestamp(),
+            }}
+        )
+        return build_api_response(
+            success=True,
+            message=f"Role description for '{role_key}' reset to default"
+        )
+    else:
+        await col.delete_one({"_id": role_key})
+        return build_api_response(
+            success=True,
+            message=f"Role description for '{role_key}' deleted"
+        )

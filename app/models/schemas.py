@@ -253,6 +253,11 @@ class ProductMaterial(BaseModel):
     file_type: str
 
 
+class GenderType(str, Enum):
+    MALE = "male"
+    FEMALE = "female"
+
+
 class SalespersonCreate(BaseModel):
     product_name: str
     product_url: Optional[HttpUrl] = None
@@ -333,6 +338,7 @@ class CompanyResponse(BaseModel):
 class RepresentativeCreate(BaseModel):
     name: str
     role: str  # accepts any string — CEO, CMO, or custom like "VP of Engineering"
+    gender: GenderType = GenderType.FEMALE
     is_decision_maker: bool = False
     linkedin_profile: Optional[HttpUrl] = None
     notes: Optional[str] = None
@@ -343,8 +349,7 @@ class RepresentativeResponse(BaseModel):
     id: str
     name: str
     role: str
-    # tenure_months: int
-    # personality_traits: List[str]
+    gender: str = "female"
     is_decision_maker: bool
     linkedin_profile: Optional[str]
     notes: Optional[str]
@@ -420,3 +425,23 @@ class AIResponse(BaseModel):
     audio_url: Optional[str] = None
     should_interrupt: bool = False
     confidence_score: float = 1.0
+
+
+# =========================
+# ✅ Role Description Schemas
+# =========================
+
+class RoleDescriptionCreate(BaseModel):
+    role: RoleType
+    description: str = Field(..., min_length=10, description="Behavioral description for this role in AI conversations")
+
+
+class RoleDescriptionUpdate(BaseModel):
+    description: str = Field(..., min_length=10)
+
+
+class RoleDescriptionResponse(BaseModel):
+    id: str
+    role: str
+    description: str
+    updated_at: datetime
