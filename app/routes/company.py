@@ -254,6 +254,73 @@ async def get_company_data(company_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.delete("/{company_id}", response_model=dict)
+async def delete_company(company_id: str):
+    """
+    Delete a company and all its related data
+    
+    This endpoint deletes:
+    - The company profile
+    - All representatives for this company
+    - All meetings for this company
+    - All conversations for those meetings
+    """
+    
+    try:
+        company_collection = get_company_collection()
+        
+        # Verify company exists before deleting
+        company = await company_collection.find_one({"_id": company_id})
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+        
+        # Count representatives to be deleted
+        representative_collection = get_representative_collection()
+        reps_count = await representative_collection.count_documents({"company_id": company_id})
+        
+        # Get all meetings for this company to delete conversations
+        meeting_collection = get_meeting_collection()
+        meetings = []
+        async for meeting in meeting_collection.find({"company_id": company_id}):
+            meetings.append(str(meeting["_id"]))
+        
+        # Delete all conversations for these meetings
+        conversation_collection = get_conversation_collection()
+        if meetings:
+            await conversation_collection.delete_many({"meeting_id": {"$in": meetings}})
+        
+        # Delete all meetings for this company
+        await meeting_collection.delete_many({"company_id": company_id})
+        
+        # Delete all representatives for this company
+        await representative_collection.delete_many({"company_id": company_id})
+        
+        # Delete the company
+        result = await company_collection.delete_one({"_id": company_id})
+        
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=500, detail="Failed to delete company")
+        
+        return build_api_response(
+            success=True,
+            data={
+                "company_id": company_id,
+                "deleted_items": {
+                    "company": 1,
+                    "representatives": reps_count,
+                    "meetings": len(meetings),
+                }
+            },
+            message=f"Company '{company_id}' and all related data deleted successfully"
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error deleting company: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # @router.post("/{company_id}/representatives", response_model=dict)
 # async def add_representative(
 #     company_id: str,
