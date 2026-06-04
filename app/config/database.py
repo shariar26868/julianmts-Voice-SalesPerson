@@ -56,3 +56,6 @@ def get_system_config_collection():
 
 def get_role_description_collection():
     return mongodb.get_collection("role_descriptions")
+
+def get_sales_methodology_collection():
+    return mongodb.get_collection("sales_methodologies")

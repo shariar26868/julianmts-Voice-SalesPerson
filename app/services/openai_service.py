@@ -1162,4 +1162,139 @@ Return ONLY valid JSON with exactly these 3 fields:
                 "pattern": "Analyzing your performance trends."
             }
 
-openai_service = OpenAIService()
+    async def analyze_methodology_coverage(
+        self,
+        conversation_turns: List[Dict[str, Any]],
+        methodology_name: str,
+        core_fields: List[Dict[str, str]],
+    ) -> Dict[str, Any]:
+        """
+        Analyze a completed conversation to determine which sales methodology
+        core fields were addressed by the salesperson.
+
+        Parameters
+        ----------
+        conversation_turns : list of turn dicts  (speaker, speaker_name, text)
+        methodology_name   : e.g. "MEDDIC"
+        core_fields        : [{"field": "Metrics", "definition": "Quantified business impact / ROI"}, ...]
+
+        Returns
+        -------
+        {
+            "overall_coverage_score": 66.7,
+            "fields_analyzed": [
+                {
+                    "field": "Metrics",
+                    "definition": "Quantified business impact / ROI",
+                    "covered": true,
+                    "questions_asked": ["What ROI do you expect from this?"],
+                    "answers_received": ["We need at least 20% cost reduction."],
+                    "coverage_notes": "Salesperson asked about ROI and received a clear answer."
+                },
+                ...
+            ]
+        }
+        """
+        try:
+            # Build a clean conversation transcript
+            transcript_lines = []
+            for turn in conversation_turns:
+                speaker = turn.get("speaker_name", turn.get("speaker", "Unknown"))
+                text    = turn.get("text", "").strip()
+                if text:
+                    transcript_lines.append(f"[{speaker}]: {text}")
+
+            if not transcript_lines:
+                raise ValueError("Empty conversation — nothing to analyze")
+
+            transcript = "\n".join(transcript_lines)
+
+            # Build the fields block for the prompt
+            fields_block = "\n".join(
+                f"  {i+1}. Field: \"{cf['field']}\" | Definition: \"{cf['definition']}\""
+                for i, cf in enumerate(core_fields)
+            )
+
+            prompt = f"""You are a Sales Coach AI. Analyze the conversation transcript below and determine how well the salesperson addressed each core field of the "{methodology_name}" sales methodology.
+
+CORE FIELDS TO ANALYZE:
+{fields_block}
+
+CONVERSATION TRANSCRIPT:
+{transcript}
+
+INSTRUCTIONS:
+- For EACH core field, check if the salesperson asked a question or discussed a topic related to that field's definition.
+- Extract the EXACT question(s) the salesperson asked (from [Salesperson] turns only).
+- Extract the EXACT answer(s) the prospect/representative gave in response.
+- A field is "covered" only if the salesperson actively raised it (asked a question or made a specific point about it). Passive mentions don't count.
+- Write a short coverage_notes (1 sentence) explaining whether it was covered and how well.
+- Calculate overall_coverage_score as: (number of covered fields / total fields) * 100, rounded to 1 decimal.
+
+Return ONLY valid JSON in this exact structure:
+{{
+  "overall_coverage_score": <float>,
+  "fields_analyzed": [
+    {{
+      "field": "<field name>",
+      "definition": "<field definition>",
+      "covered": <true|false>,
+      "questions_asked": ["<exact question 1>", "<exact question 2>"],
+      "answers_received": ["<exact answer 1>", "<exact answer 2>"],
+      "coverage_notes": "<1-sentence summary>"
+    }}
+  ]
+}}
+
+IMPORTANT:
+- Return ALL {len(core_fields)} fields in "fields_analyzed", in the same order as above.
+- If a field was NOT covered, return empty arrays for questions_asked and answers_received.
+- Do NOT invent questions or answers — only use text that appears in the transcript.
+- Return ONLY the JSON object, no markdown, no explanation."""
+
+            print(f"📊 Calling OpenAI for methodology coverage analysis ({methodology_name}, {len(core_fields)} fields, {len(transcript_lines)} turns)...")
+
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,   # low temp for deterministic factual extraction
+                max_tokens=2000,
+                response_format={"type": "json_object"},
+            )
+
+            raw = response.choices[0].message.content
+            result = json.loads(raw)
+
+            # Validate / sanitize
+            if "fields_analyzed" not in result:
+                raise ValueError("Missing 'fields_analyzed' in OpenAI response")
+
+            # Clamp score
+            score = float(result.get("overall_coverage_score", 0))
+            result["overall_coverage_score"] = round(max(0.0, min(100.0, score)), 1)
+
+            print(f"✅ Methodology coverage analysis done | Score: {result['overall_coverage_score']}%")
+            return result
+
+        except Exception as e:
+            print(f"❌ analyze_methodology_coverage error: {e}")
+            import traceback; traceback.print_exc()
+            # Return a safe fallback so the endpoint doesn't crash
+            return {
+                "overall_coverage_score": 0.0,
+                "fields_analyzed": [
+                    {
+                        "field": cf["field"],
+                        "definition": cf["definition"],
+                        "covered": False,
+                        "questions_asked": [],
+                        "answers_received": [],
+                        "coverage_notes": "Analysis failed — could not process conversation."
+                    }
+                    for cf in core_fields
+                ],
+                "error": str(e)
+            }
+
+
+openai_service = OpenAIService()

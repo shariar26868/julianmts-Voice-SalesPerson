@@ -445,3 +445,48 @@ class RoleDescriptionResponse(BaseModel):
     role: str
     description: str
     updated_at: datetime
+
+
+# =========================
+# ✅ Sales Methodology Schemas
+# =========================
+
+class CoreField(BaseModel):
+    field: str = Field(..., description="Name of the core field, e.g. 'Metrics'")
+    definition: str = Field(..., description="Quick definition, e.g. 'Quantified business impact / ROI'")
+
+
+class SalesMethodologyCreate(BaseModel):
+    name: str = Field(..., description="Methodology name, e.g. 'MEDDIC' or 'My Custom Framework'")
+    core_fields: List[CoreField] = Field(..., min_items=1, description="List of core fields with definitions")
+
+
+class SalesMethodologyResponse(BaseModel):
+    id: str
+    name: str
+    is_default: bool
+    core_fields: List[CoreField]
+    created_at: datetime
+    updated_at: datetime
+
+
+# =========================
+# ✅ Methodology Analysis Schemas
+# =========================
+
+class FieldAnalysis(BaseModel):
+    field: str
+    definition: str
+    covered: bool
+    questions_asked: List[str]
+    answers_received: List[str]
+    coverage_notes: str
+
+
+class MethodologyAnalysisResponse(BaseModel):
+    meeting_id: str
+    session_id: Optional[str]
+    methodology: str
+    overall_coverage_score: float
+    fields_analyzed: List[FieldAnalysis]
+    generated_at: datetime

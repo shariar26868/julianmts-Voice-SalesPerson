@@ -840,7 +840,7 @@ from app.config.database import (
     get_conversation_collection, get_meeting_collection,
     get_salesperson_collection, get_company_collection,
     get_representative_collection, get_methodology_prompt_collection,
-    get_system_config_collection
+    get_system_config_collection, get_sales_methodology_collection
 )
 from app.services.openai_service import openai_service
 from app.services.elevenlabs_service import elevenlabs_service
@@ -865,6 +865,185 @@ END_PHRASES = [
     "thank you", "thanks", "meet you tomorrow", "talk to you later",
     "that's all", "that is all", "i'm done", "i am done"
 ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Methodology Coverage Analysis
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/{meeting_id}/methodology-analysis", response_model=dict)
+async def get_methodology_analysis(meeting_id: str, session_id: Optional[str] = None):
+    """
+    Analyze the conversation transcript for a meeting and return which
+    methodology core fields were covered by the salesperson.
+
+    - If `session_id` is provided, analyzes that specific session.
+    - If omitted, analyzes the most recent (latest) session.
+    - The result is cached inside the conversation document so repeated calls
+      are fast (no redundant OpenAI calls).
+
+    Returns:
+    {
+      "meeting_id": "...",
+      "session_id": "...",
+      "methodology": "MEDDIC",
+      "overall_coverage_score": 66.7,
+      "fields_analyzed": [
+        {
+          "field": "Metrics",
+          "definition": "Quantified business impact / ROI",
+          "covered": true,
+          "questions_asked": ["What ROI are you targeting?"],
+          "answers_received": ["We need a 20% cost reduction."],
+          "coverage_notes": "Salesperson asked about ROI and received a clear answer."
+        },
+        ...
+      ]
+    }
+    """
+    try:
+        # ── 1. Get the meeting ─────────────────────────────────────────────
+        meeting_col = get_meeting_collection()
+        meeting = await meeting_col.find_one({"_id": meeting_id})
+        if not meeting:
+            raise HTTPException(status_code=404, detail="Meeting not found")
+
+        methodology_name: str = meeting.get("sales_methodology", "")
+        if not methodology_name:
+            raise HTTPException(
+                status_code=400,
+                detail="No sales methodology is linked to this meeting"
+            )
+
+        # ── 2. Get core fields for this methodology ────────────────────────
+        methodology_col = get_sales_methodology_collection()
+
+        # Try exact key match first (stored as UPPER_SNAKE)
+        m_key = methodology_name.strip().upper().replace(" ", "_")
+        method_doc = await methodology_col.find_one({"_id": m_key})
+
+        # Fallback: case-insensitive name scan
+        if not method_doc:
+            async for d in methodology_col.find():
+                if d.get("name", "").lower() == methodology_name.strip().lower():
+                    method_doc = d
+                    break
+
+        # If still not found, try to seed defaults and retry once
+        if not method_doc:
+            from app.routes.methodology import _seed_defaults
+            await _seed_defaults()
+            method_doc = await methodology_col.find_one({"_id": m_key})
+
+        if not method_doc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Methodology '{methodology_name}' not found in the database. "
+                       f"Please POST it to /api/methodology/ first with its core fields."
+            )
+
+        core_fields: List[Dict[str, str]] = method_doc.get("core_fields", [])
+        if not core_fields:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Methodology '{methodology_name}' has no core fields defined"
+            )
+
+        # ── 3. Get the conversation session ───────────────────────────────
+        conv_col = get_conversation_collection()
+        query = {"meeting_id": meeting_id}
+        if session_id:
+            query["session_id"] = session_id
+            conv = await conv_col.find_one(query)
+        else:
+            conv = await conv_col.find_one(query, sort=[("attempt_number", -1)])
+
+        if not conv:
+            raise HTTPException(
+                status_code=404,
+                detail="No conversation found for this meeting. "
+                       "Please complete a conversation session first."
+            )
+
+        turns: List[Dict] = conv.get("turns", [])
+        if not turns:
+            raise HTTPException(
+                status_code=400,
+                detail="Conversation has no turns yet. "
+                       "Please complete a conversation session first."
+            )
+
+        actual_session_id: str = conv.get("session_id", "")
+
+        # ── 4. Return cached analysis if already generated ─────────────────
+        if "methodology_analysis" in conv:
+            cached = conv["methodology_analysis"]
+            print(f"✅ Returning cached methodology analysis for session {actual_session_id}")
+            return build_api_response(
+                success=True,
+                data={
+                    "meeting_id":             meeting_id,
+                    "session_id":             actual_session_id,
+                    "methodology":            cached.get("methodology", methodology_name),
+                    "overall_coverage_score": cached.get("overall_coverage_score", 0),
+                    "fields_analyzed":        cached.get("fields_analyzed", []),
+                    "generated_at":           cached.get("generated_at"),
+                    "cached":                 True,
+                },
+                message="Methodology coverage analysis (cached)"
+            )
+
+        # ── 5. Run OpenAI analysis ─────────────────────────────────────────
+        print(f"🔍 Running methodology coverage analysis | meeting={meeting_id} | method={methodology_name}")
+        analysis = await openai_service.analyze_methodology_coverage(
+            conversation_turns=turns,
+            methodology_name=methodology_name,
+            core_fields=core_fields,
+        )
+
+        now = current_timestamp()
+
+        # ── 6. Cache result in conversation document ───────────────────────
+        save_payload = {
+            "methodology":            methodology_name,
+            "overall_coverage_score": analysis.get("overall_coverage_score", 0),
+            "fields_analyzed":        analysis.get("fields_analyzed", []),
+            "generated_at":           now,
+        }
+
+        try:
+            query_filter = {"session_id": actual_session_id} if actual_session_id else {"_id": conv["_id"]}
+            await conv_col.update_one(
+                query_filter,
+                {"$set": {"methodology_analysis": save_payload}}
+            )
+            print(f"💾 Methodology analysis cached for session {actual_session_id}")
+        except Exception as db_err:
+            print(f"⚠️ Could not cache analysis: {db_err}")
+
+        # ── 7. Return result ───────────────────────────────────────────────
+        return build_api_response(
+            success=True,
+            data={
+                "meeting_id":             meeting_id,
+                "session_id":             actual_session_id,
+                "methodology":            methodology_name,
+                "overall_coverage_score": analysis.get("overall_coverage_score", 0),
+                "fields_analyzed":        analysis.get("fields_analyzed", []),
+                "generated_at":           now.isoformat() if hasattr(now, "isoformat") else str(now),
+                "cached":                 False,
+            },
+            message=f"Methodology coverage analysis complete — {analysis.get('overall_coverage_score', 0)}% coverage"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ methodology-analysis error: {e}")
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
 
 async def _get_rep_voice_and_personality(rep: Dict) -> tuple:
