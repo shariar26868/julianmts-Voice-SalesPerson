@@ -1210,6 +1210,7 @@
         // Audio queue for sequential playback (primary then secondary)
         let audioQueue = [];
         let isPlayingAudio = false;
+        let currentAudio = null;
 
         // Silence detection
         let audioContext = null;
@@ -1298,21 +1299,26 @@
             setMicLabel(`${speakerName} is speaking...`);
 
             const audio = new Audio(`data:${mimeType};base64,${base64}`);
+            currentAudio = audio;
             audio.onended = () => {
                 setRepSpeaking(repId, false);
+                currentAudio = null;
                 playNextInQueue();
             };
             audio.onerror = () => {
                 setRepSpeaking(repId, false);
+                currentAudio = null;
                 // Try mp3 fallback
                 const audio2 = new Audio(`data:audio/mp3;base64,${base64}`);
-                audio2.onended = () => { setRepSpeaking(repId, false); playNextInQueue(); };
-                audio2.onerror = () => { setRepSpeaking(repId, false); playNextInQueue(); };
-                audio2.play().catch(() => { setRepSpeaking(repId, false); playNextInQueue(); });
+                currentAudio = audio2;
+                audio2.onended = () => { setRepSpeaking(repId, false); currentAudio = null; playNextInQueue(); };
+                audio2.onerror = () => { setRepSpeaking(repId, false); currentAudio = null; playNextInQueue(); };
+                audio2.play().catch(() => { setRepSpeaking(repId, false); currentAudio = null; playNextInQueue(); });
             };
             audio.play().catch(err => {
                 console.error('Play failed:', err);
                 setRepSpeaking(repId, false);
+                currentAudio = null;
                 playNextInQueue();
             });
         }
@@ -1625,6 +1631,10 @@
             stopVolumeMonitor();
             audioQueue = [];
             isPlayingAudio = false;
+            if (currentAudio) {
+                try { currentAudio.pause(); } catch(e) {}
+                currentAudio = null;
+            }
             if (ws) { try { ws.send(JSON.stringify({ type: 'disconnect' })); } catch (e) { } ws.close(); ws = null; }
             isConnected = false; isAIReplying = false;
             currentSessionId = null; currentMeetingId = null;

@@ -37,35 +37,40 @@ class CompanyScraper:
         print(f"🔍 Scraping: {domain} ({company_name})")
         print(f"{'='*60}\n")
 
-        # Step 1: Website scraping
-        print("📌 Step 1: Scraping website content...")
-        raw_content = await self._scrape_website_content(company_url)
+        # ── Steps 1-3: Run ALL IO-bound fetches IN PARALLEL ──────────────
+        print("⚡ Running website scrape + tech stack + Wikipedia + AI search in parallel...")
+        import asyncio
+
+        results = await asyncio.gather(
+            self._scrape_website_content(company_url),
+            self._fetch_from_pagespeed(company_url),
+            self._fetch_wikipedia(company_name),
+            self._fetch_ai_search_results(company_name, domain),
+            return_exceptions=True,   # one failure won't cancel others
+        )
+
+        # Safely unpack — treat exceptions as empty/default values
+        raw_content      = results[0] if not isinstance(results[0], Exception) else ""
+        tech_data        = results[1] if not isinstance(results[1], Exception) else {}
+        wiki_content     = results[2] if not isinstance(results[2], Exception) else ""
+        ai_search_results= results[3] if not isinstance(results[3], Exception) else ""
 
         if raw_content:
             company_data["data_sources"].append("Company Website")
 
-        # Step 2: Tech stack
-        print("\n📌 Step 2: Fetching tech stack...")
-        tech_data = await self._fetch_from_pagespeed(company_url)
-        company_data["tech_stack"] = tech_data.get("tech_stack", [])
+        company_data["tech_stack"] = tech_data.get("tech_stack", []) if isinstance(tech_data, dict) else []
         if company_data["tech_stack"]:
             company_data["data_sources"].append("PageSpeed API")
 
-        # Step 3: Wikipedia + OpenAI Web Search
-        print("\n📌 Step 3: Wikipedia + OpenAI Web Search...")
-
-        wiki_content = await self._fetch_wikipedia(company_name)
         if wiki_content:
             company_data["data_sources"].append("Wikipedia")
 
-        ai_search_results = await self._fetch_ai_search_results(company_name, domain)
         if ai_search_results:
             company_data["data_sources"].append("OpenAI Web Search")
 
-        # Step 4: AI extraction
+        # ── Step 4: AI extraction (depends on gathered results) ───────────
         if self.openai_client and (raw_content or ai_search_results or wiki_content):
-            print("\n📌 Step 4: Using AI to extract company data...")
-
+            print("\n📌 AI extraction from gathered data...")
             ai_extracted_data = await self._extract_with_chatgpt(
                 company_name=company_name,
                 domain=domain,
@@ -73,15 +78,13 @@ class CompanyScraper:
                 search_results=ai_search_results,
                 wiki_content=wiki_content
             )
-
             if ai_extracted_data:
                 self._merge_data(company_data, ai_extracted_data, "AI Extraction")
         else:
             print("\n⚠️ OpenAI API key not found or no content to process")
 
-        # Step 5: Basic fallback extraction
+        # ── Step 5: Basic regex fallback ──────────────────────────────────
         if raw_content:
-            print("\n📌 Step 5: Basic extraction from website...")
             basic_data = await self._basic_extraction(raw_content)
             self._merge_data(company_data, basic_data, "Basic Extraction")
 
@@ -92,6 +95,7 @@ class CompanyScraper:
         print(f"{'='*60}\n")
 
         return company_data
+
 
     def _extract_company_name(self, domain: str) -> str:
         name = domain.replace("www.", "").split(".")[0]
@@ -116,7 +120,7 @@ class CompanyScraper:
 
     async def _scrape_website_content(self, company_url: str) -> str:
         try:
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
                 response = await client.get(
                     company_url,
                     headers={"User-Agent": "Mozilla/5.0"}
@@ -141,7 +145,7 @@ class CompanyScraper:
 
     async def _fetch_wikipedia(self, company_name: str) -> str:
         try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
+            async with httpx.AsyncClient(timeout=8.0) as client:
                 response = await client.get(
                     f"https://en.wikipedia.org/api/rest_v1/page/summary/{company_name}"
                 )
@@ -338,7 +342,7 @@ Return ONLY valid JSON:
             return result
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.get(
                     "https://www.googleapis.com/pagespeedonline/v5/runPagespeed",
                     params={"url": company_url, "key": api_key, "category": "PERFORMANCE"}

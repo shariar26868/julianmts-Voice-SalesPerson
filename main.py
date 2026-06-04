@@ -80,6 +80,7 @@ from app.config.database import mongodb
 from app.routes import salesperson, company, meeting, conversation
 from app.routes import admin
 from app.routes import methodology
+from app.routes import opportunities
 app = FastAPI(
     title="AI Sales Training Platform",
     description="Multi-agent AI conversation platform for sales training",
@@ -142,4 +143,5 @@ app.include_router(meeting.router, prefix="/meetings", tags=["Meeting"])
 app.include_router(conversation.router, prefix="/conversations", tags=["Conversation"])
 app.include_router(admin.router)
 app.include_router(methodology.router, prefix="/api/methodology", tags=["Methodology"])
+app.include_router(opportunities.router, prefix="/api/opportunities", tags=["Opportunities"])
 

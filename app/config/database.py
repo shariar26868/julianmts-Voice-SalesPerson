@@ -59,3 +59,6 @@ def get_role_description_collection():
 
 def get_sales_methodology_collection():
     return mongodb.get_collection("sales_methodologies")
+
+def get_opportunities_collection():
+    return mongodb.get_collection("opportunities")

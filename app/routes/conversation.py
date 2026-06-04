@@ -1856,6 +1856,61 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                         continue
 
                     await websocket.send_json({"type": "transcription", "text": transcribed, "speaker": "salesperson"})
+
+                    # ── IMMEDIATE END: skip AI stream entirely if end was requested ──
+                    if end_requested:
+                        # Send a short goodbye directly — no OpenAI call needed
+                        goodbye_text = "Thank you for the meeting. It was great speaking with you. Goodbye!"
+                        await websocket.send_json({
+                            "type": "ai_response_text",
+                            "text": goodbye_text,
+                            "speaker_name": representatives[0]["name"] if representatives else "Representative",
+                            "speaker_role": representatives[0].get("role", "") if representatives else "",
+                            "is_primary": True,
+                            "is_chunk": False,
+                        })
+                        await websocket.send_json({"type": "no_audio"})
+
+                        # Save salesperson turn in background (fire and forget)
+                        _sp_turn_snap = {
+                            "turn_number": 0, "speaker": "salesperson",
+                            "speaker_name": "Salesperson", "text": transcribed,
+                            "audio_url": None, "duration_seconds": 5.0,
+                            "timestamp": "0:00", "created_at": current_timestamp()
+                        }
+                        async def _quick_save_end():
+                            try:
+                                await conv_col.update_one(
+                                    {"session_id": session_id},
+                                    {
+                                        "$inc": {"salesperson_talk_time": 5.0},
+                                        "$push": {"turns": _sp_turn_snap},
+                                    }
+                                )
+                            except Exception:
+                                pass
+                        asyncio.create_task(_quick_save_end())
+
+                        # End meeting immediately
+                        meeting_latest = await meeting_col.find_one({"_id": meeting_id})
+                        started_at = meeting_latest.get("started_at")
+                        ended_at = current_timestamp()
+                        duration_seconds = (ended_at - started_at).total_seconds() if started_at else 0
+                        await meeting_col.update_one({"_id": meeting_id}, {"$set": {
+                            "status": "completed", "ended_at": ended_at,
+                            "total_duration_seconds": duration_seconds,
+                            "end_after_response": False
+                        }})
+                        await websocket.send_json({
+                            "type": "meeting_ended",
+                            "message": "Meeting ended by user",
+                            "ended_at": ended_at.isoformat(),
+                            "duration_seconds": duration_seconds
+                        })
+                        print(f"✅ Meeting ended immediately on user phrase ({duration_seconds:.0f}s)")
+                        break  # exit the while loop
+
+                    # ── Normal flow: AI stream (only if NOT ending) ────────────
                     await websocket.send_json({"type": "ai_thinking", "message": "AI is thinking..."})
 
                     # ── PARALLEL: DB fetch already done alongside Whisper ──

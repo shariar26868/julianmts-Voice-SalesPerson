@@ -136,45 +136,45 @@ class ElevenLabsService:
         
         presets = {
             "angry": VoiceSettings(
-                stability=0.3,
+                stability=0.35,
                 similarity_boost=0.8,
-                style=0.6,
+                style=0.45,
                 use_speaker_boost=True
             ),
             "arrogant": VoiceSettings(
-                stability=0.6,
-                similarity_boost=0.9,
-                style=0.7,
+                stability=0.5,
+                similarity_boost=0.85,
+                style=0.35,
                 use_speaker_boost=True
             ),
             "soft": VoiceSettings(
-                stability=0.7,
-                similarity_boost=0.7,
-                style=0.3,
+                stability=0.55,
+                similarity_boost=0.75,
+                style=0.2,
                 use_speaker_boost=True
             ),
             "cold_hearted": VoiceSettings(
                 stability=0.6,
                 similarity_boost=0.8,
-                style=0.2,
+                style=0.15,
                 use_speaker_boost=False
             ),
             "nice": VoiceSettings(
-                stability=0.8,
+                stability=0.5,
                 similarity_boost=0.8,
-                style=0.5,
+                style=0.25,
                 use_speaker_boost=True
             ),
             "analytical": VoiceSettings(
-                stability=0.75,
-                similarity_boost=0.7,
-                style=0.3,
+                stability=0.55,
+                similarity_boost=0.75,
+                style=0.2,
                 use_speaker_boost=True
             ),
             "neutral": VoiceSettings(
-                stability=0.5,
+                stability=0.45,
                 similarity_boost=0.75,
-                style=0.0,
+                style=0.15,
                 use_speaker_boost=True
             ),
         }
