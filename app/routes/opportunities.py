@@ -32,32 +32,17 @@ router = APIRouter(tags=["Opportunities"])
 # Pydantic Models
 # ─────────────────────────────────────────────────────────────────────────────
 
-STAGE_OPTIONS = ["Discovery", "Proposal", "Negotiation", "Closed Won", "Closed Lost"]
-
-
 class OpportunityCreate(BaseModel):
     company_id: str = Field(..., description="The company this opportunity belongs to")
-    meeting_id: Optional[str] = Field(None, description="The meeting this opportunity belongs to")
     name: str = Field(..., description="Opportunity name, e.g. 'Enterprise License Upgrade'")
     value: str = Field(..., description="Deal value, e.g. '$125,000'")
-    stage: str = Field(
-        ...,
-        description=f"Current stage. Options: {', '.join(STAGE_OPTIONS)}"
-    )
     close_date: str = Field(..., description="Expected close date, e.g. 'Mar 15, 2025'")
-    probability: int = Field(
-        ..., ge=0, le=100,
-        description="Win probability 0–100"
-    )
 
 
 class OpportunityUpdate(BaseModel):
     name: Optional[str] = None
-    meeting_id: Optional[str] = None
     value: Optional[str] = None
-    stage: Optional[str] = None
     close_date: Optional[str] = None
-    probability: Optional[int] = Field(None, ge=0, le=100)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -74,19 +59,10 @@ async def create_opportunity(body: OpportunityCreate):
       "company_id": "abc123",
       "name": "Enterprise License Upgrade",
       "value": "$125,000",
-      "stage": "Negotiation",
-      "close_date": "Mar 15, 2025",
-      "probability": 75
+      "close_date": "Mar 15, 2025"
     }
     """
     col = get_opportunities_collection()
-
-    # Validate stage
-    if body.stage not in STAGE_OPTIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid stage '{body.stage}'. Must be one of: {', '.join(STAGE_OPTIONS)}"
-        )
 
     now = current_timestamp()
     opp_id = generate_id()
@@ -94,12 +70,9 @@ async def create_opportunity(body: OpportunityCreate):
     doc = {
         "_id":         opp_id,
         "company_id":  body.company_id,
-        "meeting_id":  body.meeting_id,
         "name":        body.name.strip(),
         "value":       body.value.strip(),
-        "stage":       body.stage,
         "close_date":  body.close_date.strip(),
-        "probability": body.probability,
         "created_at":  now,
         "updated_at":  now,
     }
@@ -115,7 +88,7 @@ async def create_opportunity(body: OpportunityCreate):
 
 
 @router.get("/company/{company_id}", response_model=dict)
-async def list_opportunities(company_id: str, meeting_id: Optional[str] = None):
+async def list_opportunities(company_id: str):
     """
     List all opportunities for a specific company.
     Returns the same field structure as the AI-generated opportunities.
@@ -124,12 +97,8 @@ async def list_opportunities(company_id: str, meeting_id: Optional[str] = None):
     """
     col = get_opportunities_collection()
 
-    query = {"company_id": company_id}
-    if meeting_id:
-        query["meeting_id"] = meeting_id
-
     opportunities = []
-    async for doc in col.find(query, sort=[("created_at", -1)]):
+    async for doc in col.find({"company_id": company_id}, sort=[("created_at", -1)]):
         doc["id"] = str(doc.pop("_id"))
         opportunities.append(doc)
 
@@ -137,29 +106,6 @@ async def list_opportunities(company_id: str, meeting_id: Optional[str] = None):
         success=True,
         data={
             "company_id":    company_id,
-            "opportunities": opportunities,
-            "total":         len(opportunities),
-        },
-        message=f"{len(opportunities)} opportunities found"
-    )
-
-
-@router.get("/meeting/{meeting_id}", response_model=dict)
-async def list_opportunities_by_meeting(meeting_id: str):
-    """
-    List all opportunities for a specific meeting.
-    """
-    col = get_opportunities_collection()
-
-    opportunities = []
-    async for doc in col.find({"meeting_id": meeting_id}, sort=[("created_at", -1)]):
-        doc["id"] = str(doc.pop("_id"))
-        opportunities.append(doc)
-
-    return build_api_response(
-        success=True,
-        data={
-            "meeting_id":    meeting_id,
             "opportunities": opportunities,
             "total":         len(opportunities),
         },
@@ -188,8 +134,7 @@ async def update_opportunity(opportunity_id: str, body: OpportunityUpdate):
 
     Body example (partial update):
     {
-      "stage": "Closed Won",
-      "probability": 100
+      "value": "$150,000"
     }
     """
     col = get_opportunities_collection()
@@ -203,21 +148,10 @@ async def update_opportunity(opportunity_id: str, body: OpportunityUpdate):
 
     if body.name is not None:
         update_data["name"] = body.name.strip()
-    if body.meeting_id is not None:
-        update_data["meeting_id"] = body.meeting_id.strip() if body.meeting_id else None
     if body.value is not None:
         update_data["value"] = body.value.strip()
-    if body.stage is not None:
-        if body.stage not in STAGE_OPTIONS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid stage '{body.stage}'. Must be one of: {', '.join(STAGE_OPTIONS)}"
-            )
-        update_data["stage"] = body.stage
     if body.close_date is not None:
         update_data["close_date"] = body.close_date.strip()
-    if body.probability is not None:
-        update_data["probability"] = body.probability
 
     await col.update_one({"_id": opportunity_id}, {"$set": update_data})
 
