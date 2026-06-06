@@ -9,7 +9,7 @@ Endpoints:
 """
 
 from fastapi import APIRouter, HTTPException
-from typing import List
+from typing import List, Optional
 from app.models.schemas import SalesMethodologyCreate, CoreField
 from app.config.database import get_sales_methodology_collection
 from app.utils.helpers import current_timestamp, build_api_response
@@ -82,6 +82,8 @@ async def _seed_defaults():
                 "name":        name,
                 "is_default":  True,
                 "core_fields": fields,
+                "company_id":  None,
+                "meeting_id":  None,
                 "created_at":  now,
                 "updated_at":  now,
             })
@@ -98,7 +100,7 @@ def _doc_to_response(doc: dict) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/", response_model=dict)
-async def list_methodologies():
+async def list_methodologies(company_id: Optional[str] = None, meeting_id: Optional[str] = None):
     """
     List all sales methodologies with their core fields and quick definitions.
     Default methodologies are seeded automatically on first call.
@@ -106,8 +108,17 @@ async def list_methodologies():
     await _seed_defaults()
     col = get_sales_methodology_collection()
 
+    query = {}
+    if company_id or meeting_id:
+        conditions = [{"is_default": True}]
+        if company_id:
+            conditions.append({"company_id": company_id})
+        if meeting_id:
+            conditions.append({"meeting_id": meeting_id})
+        query = {"$or": conditions}
+
     methodologies = []
-    async for doc in col.find():
+    async for doc in col.find(query):
         methodologies.append(_doc_to_response(doc))
 
     return build_api_response(
@@ -196,6 +207,8 @@ async def create_or_update_methodology(body: SalesMethodologyCreate):
             {"$set": {
                 "name":        body.name.strip(),
                 "core_fields": fields_list,
+                "company_id":  body.company_id,
+                "meeting_id":  body.meeting_id,
                 "updated_at":  now,
             }}
         )
@@ -206,6 +219,8 @@ async def create_or_update_methodology(body: SalesMethodologyCreate):
             "name":        body.name.strip(),
             "is_default":  False,
             "core_fields": fields_list,
+            "company_id":  body.company_id,
+            "meeting_id":  body.meeting_id,
             "created_at":  now,
             "updated_at":  now,
         })

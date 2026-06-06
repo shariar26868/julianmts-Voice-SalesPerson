@@ -459,6 +459,8 @@ class CoreField(BaseModel):
 class SalesMethodologyCreate(BaseModel):
     name: str = Field(..., description="Methodology name, e.g. 'MEDDIC' or 'My Custom Framework'")
     core_fields: List[CoreField] = Field(..., min_items=1, description="List of core fields with definitions")
+    company_id: Optional[str] = None
+    meeting_id: Optional[str] = None
 
 
 class SalesMethodologyResponse(BaseModel):
@@ -466,6 +468,8 @@ class SalesMethodologyResponse(BaseModel):
     name: str
     is_default: bool
     core_fields: List[CoreField]
+    company_id: Optional[str] = None
+    meeting_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

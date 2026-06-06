@@ -37,6 +37,7 @@ STAGE_OPTIONS = ["Discovery", "Proposal", "Negotiation", "Closed Won", "Closed L
 
 class OpportunityCreate(BaseModel):
     company_id: str = Field(..., description="The company this opportunity belongs to")
+    meeting_id: Optional[str] = Field(None, description="The meeting this opportunity belongs to")
     name: str = Field(..., description="Opportunity name, e.g. 'Enterprise License Upgrade'")
     value: str = Field(..., description="Deal value, e.g. '$125,000'")
     stage: str = Field(
@@ -52,6 +53,7 @@ class OpportunityCreate(BaseModel):
 
 class OpportunityUpdate(BaseModel):
     name: Optional[str] = None
+    meeting_id: Optional[str] = None
     value: Optional[str] = None
     stage: Optional[str] = None
     close_date: Optional[str] = None
@@ -92,6 +94,7 @@ async def create_opportunity(body: OpportunityCreate):
     doc = {
         "_id":         opp_id,
         "company_id":  body.company_id,
+        "meeting_id":  body.meeting_id,
         "name":        body.name.strip(),
         "value":       body.value.strip(),
         "stage":       body.stage,
@@ -112,7 +115,7 @@ async def create_opportunity(body: OpportunityCreate):
 
 
 @router.get("/company/{company_id}", response_model=dict)
-async def list_opportunities(company_id: str):
+async def list_opportunities(company_id: str, meeting_id: Optional[str] = None):
     """
     List all opportunities for a specific company.
     Returns the same field structure as the AI-generated opportunities.
@@ -121,8 +124,12 @@ async def list_opportunities(company_id: str):
     """
     col = get_opportunities_collection()
 
+    query = {"company_id": company_id}
+    if meeting_id:
+        query["meeting_id"] = meeting_id
+
     opportunities = []
-    async for doc in col.find({"company_id": company_id}, sort=[("created_at", -1)]):
+    async for doc in col.find(query, sort=[("created_at", -1)]):
         doc["id"] = str(doc.pop("_id"))
         opportunities.append(doc)
 
@@ -130,6 +137,29 @@ async def list_opportunities(company_id: str):
         success=True,
         data={
             "company_id":    company_id,
+            "opportunities": opportunities,
+            "total":         len(opportunities),
+        },
+        message=f"{len(opportunities)} opportunities found"
+    )
+
+
+@router.get("/meeting/{meeting_id}", response_model=dict)
+async def list_opportunities_by_meeting(meeting_id: str):
+    """
+    List all opportunities for a specific meeting.
+    """
+    col = get_opportunities_collection()
+
+    opportunities = []
+    async for doc in col.find({"meeting_id": meeting_id}, sort=[("created_at", -1)]):
+        doc["id"] = str(doc.pop("_id"))
+        opportunities.append(doc)
+
+    return build_api_response(
+        success=True,
+        data={
+            "meeting_id":    meeting_id,
             "opportunities": opportunities,
             "total":         len(opportunities),
         },
@@ -173,6 +203,8 @@ async def update_opportunity(opportunity_id: str, body: OpportunityUpdate):
 
     if body.name is not None:
         update_data["name"] = body.name.strip()
+    if body.meeting_id is not None:
+        update_data["meeting_id"] = body.meeting_id.strip() if body.meeting_id else None
     if body.value is not None:
         update_data["value"] = body.value.strip()
     if body.stage is not None:
