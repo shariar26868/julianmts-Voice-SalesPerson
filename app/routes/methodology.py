@@ -103,6 +103,7 @@ def _doc_to_response(doc: dict) -> dict:
 async def list_methodologies(company_id: Optional[str] = None, meeting_id: Optional[str] = None):
     """
     List all sales methodologies with their core fields and quick definitions.
+    Supports optional query parameters `company_id` and `meeting_id` to filter results.
     Default methodologies are seeded automatically on first call.
     """
     await _seed_defaults()
@@ -174,6 +175,8 @@ async def create_or_update_methodology(body: SalesMethodologyCreate):
     Create a new sales methodology (or update an existing one) with:
       - name          : methodology name (e.g. "My Custom Framework")
       - core_fields   : list of { field, definition } pairs
+      - company_id    : optional company ID
+      - meeting_id    : optional meeting ID
 
     If a methodology with the same name already exists, its core fields
     will be updated (upsert behaviour).
@@ -184,7 +187,9 @@ async def create_or_update_methodology(body: SalesMethodologyCreate):
       "core_fields": [
         { "field": "Business Value", "definition": "Measurable customer gain" },
         { "field": "ROI",            "definition": "Financial return expected" }
-      ]
+      ],
+      "company_id": "abc123",
+      "meeting_id": "meet456"
     }
     """
     col = get_sales_methodology_collection()
