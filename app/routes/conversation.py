@@ -1784,10 +1784,52 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
         
         audio_stream_service.start_stream(session_id)  # use session_id so streams don't collide
         print(f"✅ WS connected: {meeting_id} | session #{attempt_number} ({session_id})")
-        
+
+        incoming_queue = asyncio.Queue()
+        active_ai_task = None
+        active_ai_save_task = None
+
+        async def _receive_websocket_messages():
+            try:
+                while True:
+                    message = await websocket.receive_json()
+                    await incoming_queue.put(message)
+            except WebSocketDisconnect:
+                await incoming_queue.put({"type": "disconnect"})
+            except Exception as e:
+                print(f"❌ WS receiver error: {e}")
+                await incoming_queue.put({"type": "disconnect"})
+
+        async def _cancel_active_ai_response():
+            nonlocal active_ai_task, active_ai_save_task
+            cancelled = False
+            if active_ai_task and not active_ai_task.done():
+                active_ai_task.cancel()
+                try:
+                    await active_ai_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    print(f"❌ Active AI task cancellation error: {e}")
+                active_ai_task = None
+                cancelled = True
+            if active_ai_save_task and not active_ai_save_task.done():
+                active_ai_save_task.cancel()
+                try:
+                    await active_ai_save_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    print(f"❌ Active save task cancellation error: {e}")
+                active_ai_save_task = None
+                cancelled = True
+            return cancelled
+
+        receive_task = asyncio.create_task(_receive_websocket_messages())
+
         while True:
             try:
-                data = await asyncio.wait_for(websocket.receive_json(), timeout=30.0)
+                data = await asyncio.wait_for(incoming_queue.get(), timeout=30.0)
             except asyncio.TimeoutError:
                 await websocket.send_json({"type": "ping"})
                 continue
@@ -1795,360 +1837,373 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
             
             if msg_type == "audio_chunk":
                 is_speaking = data.get("is_speaking", True)
-                
+
                 if is_speaking:
-                    audio_stream_service.add_audio_chunk(session_id, data.get("data"))
-                else:
-                    print("🎙️ User stopped, processing...")
-                    chunks = audio_stream_service.stop_speaking(session_id)
-                    
-                    if not chunks:
-                        continue
-                    
-                    # Combine raw audio bytes — reorder WebM init chunk to front
-                    # so the S3-stored file is a valid WebM container for ffmpeg.
-                    _WEBM_MAGIC = b'\x1a\x45\xdf\xa3'
-                    _init_idx = next(
-                        (i for i, c in enumerate(chunks) if _WEBM_MAGIC in c[:64]),
-                        None
-                    )
-                    if _init_idx is not None and _init_idx != 0:
-                        chunks = [chunks[_init_idx]] + chunks[:_init_idx] + chunks[_init_idx + 1:]
-                    combined_salesperson_audio = b"".join(chunks)
-
-                    # ── PARALLEL: Whisper STT + DB fetch run at the same time ──
-                    # Motor coroutines need an async wrapper to be used with create_task
-                    async def _prefetch_conv():
-                        return await conv_col.find_one({"session_id": session_id})
-
-                    whisper_task      = asyncio.create_task(
-                        whisper_service.transcribe_audio_stream(chunks)
-                    )
-                    db_prefetch_task  = asyncio.create_task(_prefetch_conv())
-
-                    # Transcribe
-                    try:
-                        transcribed = await whisper_task
-                        if not transcribed or transcribed.strip() == "":
-                            print("⚠️ Empty transcription — audio too short or silent, skipping AI response")
-                            db_prefetch_task.cancel()
+                    if active_ai_task and not active_ai_task.done():
+                        if await _cancel_active_ai_response():
                             await websocket.send_json({
-                                "type": "transcription_empty",
-                                "message": "Audio was too short or silent. Please speak clearly and try again."
+                                "type": "ai_interrupted",
+                                "message": "User started speaking and interrupted the agent response."
                             })
-                            continue
-                        print(f"✅ Transcription: {transcribed}")
-                        # Check for user-triggered end phrases in live transcription
-                        msg_lower = transcribed.lower()
-                        end_requested = False
-                        for phrase in END_PHRASES:
-                            if phrase in msg_lower:
-                                # mark meeting to end after AI responds
-                                await meeting_col.update_one({"_id": meeting_id}, {"$set": {"end_after_response": True}})
-                                end_requested = True
-                                break
-                        if end_requested:
-                            await websocket.send_json({"type": "meeting_will_end", "message": "Meeting will end after agent response"})
-                    except Exception as e:
-                        print(f"❌ Whisper error: {e}")
+                    audio_stream_service.add_audio_chunk(session_id, data.get("data"))
+                    continue
+
+                # User finished speaking; finalize the latest turn
+                if active_ai_task and not active_ai_task.done():
+                    if await _cancel_active_ai_response():
+                        await websocket.send_json({
+                            "type": "ai_interrupted",
+                            "message": "User interrupted the agent response before this turn."
+                        })
+
+                print("🎙️ User stopped, processing...")
+                chunks = audio_stream_service.stop_speaking(session_id)
+
+                if not chunks:
+                    continue
+
+                # Combine raw audio bytes — reorder WebM init chunk to front
+                # so the S3-stored file is a valid WebM container for ffmpeg.
+                _WEBM_MAGIC = b'\x1a\x45\xdf\xa3'
+                _init_idx = next(
+                    (i for i, c in enumerate(chunks) if _WEBM_MAGIC in c[:64]),
+                    None
+                )
+                if _init_idx is not None and _init_idx != 0:
+                    chunks = [chunks[_init_idx]] + chunks[:_init_idx] + chunks[_init_idx + 1:]
+                combined_salesperson_audio = b"".join(chunks)
+
+                # ── PARALLEL: Whisper STT + DB fetch run at the same time ──
+                async def _prefetch_conv():
+                    return await conv_col.find_one({"session_id": session_id})
+
+                whisper_task      = asyncio.create_task(
+                    whisper_service.transcribe_audio_stream(chunks)
+                )
+                db_prefetch_task  = asyncio.create_task(_prefetch_conv())
+
+                # Transcribe
+                try:
+                    transcribed = await whisper_task
+                    if not transcribed or transcribed.strip() == "":
+                        print("⚠️ Empty transcription — audio too short or silent, skipping AI response")
                         db_prefetch_task.cancel()
-                        await websocket.send_json({"type": "error", "message": f"Speech recognition failed: {str(e)}"})
+                        await websocket.send_json({
+                            "type": "transcription_empty",
+                            "message": "Audio was too short or silent. Please speak clearly and try again."
+                        })
                         continue
-
-                    await websocket.send_json({"type": "transcription", "text": transcribed, "speaker": "salesperson"})
-
-                    # ── IMMEDIATE END: skip AI stream entirely if end was requested ──
-                    if end_requested:
-                        # Send a short goodbye directly — no OpenAI call needed
-                        goodbye_text = "Thank you for the meeting. It was great speaking with you. Goodbye!"
-                        await websocket.send_json({
-                            "type": "ai_response_text",
-                            "text": goodbye_text,
-                            "speaker_name": representatives[0]["name"] if representatives else "Representative",
-                            "speaker_role": representatives[0].get("role", "") if representatives else "",
-                            "is_primary": True,
-                            "is_chunk": False,
-                        })
-                        await websocket.send_json({"type": "no_audio"})
-
-                        # Save salesperson turn in background (fire and forget)
-                        _sp_turn_snap = {
-                            "turn_number": 0, "speaker": "salesperson",
-                            "speaker_name": "Salesperson", "text": transcribed,
-                            "audio_url": None, "duration_seconds": 5.0,
-                            "timestamp": "0:00", "created_at": current_timestamp()
-                        }
-                        async def _quick_save_end():
-                            try:
-                                await conv_col.update_one(
-                                    {"session_id": session_id},
-                                    {
-                                        "$inc": {"salesperson_talk_time": 5.0},
-                                        "$push": {"turns": _sp_turn_snap},
-                                    }
-                                )
-                            except Exception:
-                                pass
-                        asyncio.create_task(_quick_save_end())
-
-                        # End meeting immediately
-                        meeting_latest = await meeting_col.find_one({"_id": meeting_id})
-                        started_at = meeting_latest.get("started_at")
-                        ended_at = current_timestamp()
-                        duration_seconds = (ended_at - started_at).total_seconds() if started_at else 0
-                        await meeting_col.update_one({"_id": meeting_id}, {"$set": {
-                            "status": "completed", "ended_at": ended_at,
-                            "total_duration_seconds": duration_seconds,
-                            "end_after_response": False
-                        }})
-                        await websocket.send_json({
-                            "type": "meeting_ended",
-                            "message": "Meeting ended by user",
-                            "ended_at": ended_at.isoformat(),
-                            "duration_seconds": duration_seconds
-                        })
-                        print(f"✅ Meeting ended immediately on user phrase ({duration_seconds:.0f}s)")
-                        break  # exit the while loop
-
-                    # ── Normal flow: AI stream (only if NOT ending) ────────────
-                    await websocket.send_json({"type": "ai_thinking", "message": "AI is thinking..."})
-
-                    # ── PARALLEL: DB fetch already done alongside Whisper ──
-                    # Direct address check first (zero latency, no API call needed)
+                    print(f"✅ Transcription: {transcribed}")
                     msg_lower = transcribed.lower()
-                    direct_rep = None
-                    for rep in representatives:
-                        rep_name = rep.get("name", "").lower().strip()
-                        rep_role = rep.get("role", "").lower().strip()
-                        if rep_name and rep_name in msg_lower:
-                            direct_rep = rep
+                    end_requested = False
+                    for phrase in END_PHRASES:
+                        if phrase in msg_lower:
+                            await meeting_col.update_one({"_id": meeting_id}, {"$set": {"end_after_response": True}})
+                            end_requested = True
                             break
-                        if rep_role and rep_role in msg_lower:
-                            direct_rep = rep
-                            break
+                    if end_requested:
+                        await websocket.send_json({"type": "meeting_will_end", "message": "Meeting will end after agent response"})
+                except Exception as e:
+                    print(f"❌ Whisper error: {e}")
+                    db_prefetch_task.cancel()
+                    await websocket.send_json({"type": "error", "message": f"Speech recognition failed: {str(e)}"})
+                    continue
 
-                    async def _select_responder(conv_history_snapshot):
-                        if direct_rep:
-                            return direct_rep
-                        responder_data = await openai_service.fast_identify_responder(
-                            conversation_history=conv_history_snapshot,
-                            representatives=representatives,
-                            salesperson_data=salesperson,
-                            company_data=company,
-                            current_message=transcribed,
-                            meeting_goal=meeting.get("meeting_goal", ""),
-                            role_descriptions=role_descriptions,
-                        )
-                        for rep in representatives:
-                            if rep.get("id") == responder_data.get("primary_rep_id"):
-                                return rep
-                        return representatives[0]
-
-                    # Step 1: use the DB result already fetched in parallel with Whisper
-                    conversation = await db_prefetch_task
-                    conv_history = list(conversation.get("turns", []))
-                    current_turn = conversation.get("total_turns", len(conv_history)) + 1
-
-                    # Step 2: S3 upload + responder selection in parallel
-                    salesperson_audio_bytes = combined_salesperson_audio if combined_salesperson_audio else b""
-
-                    upload_task     = asyncio.create_task(
-                        _upload_audio(salesperson_audio_bytes, meeting_id, current_turn, "salesperson")
-                        if salesperson_audio_bytes else asyncio.sleep(0)
+                current_turn = conversation.get("total_turns", len(conversation.get("turns", []))) + 1
+                salesperson_turn = {
+                    "turn_number": current_turn,
+                    "speaker": "salesperson",
+                    "speaker_name": "Salesperson",
+                    "text": transcribed,
+                    "audio_url": None,
+                    "timestamp": format_duration(len(conversation.get("turns", [])) * 10),
+                    "duration_seconds": 5.0,
+                    "created_at": current_timestamp()
+                }
+                try:
+                    await conv_col.update_one(
+                        {"session_id": session_id},
+                        {
+                            "$inc": {"salesperson_talk_time": 5.0},
+                            "$push": {"turns": salesperson_turn},
+                            "$set": {"total_turns": current_turn}
+                        }
                     )
-                    responder_task  = asyncio.create_task(_select_responder(conv_history))
+                    conversation["turns"].append(salesperson_turn)
+                    conversation["total_turns"] = current_turn
+                except Exception as e:
+                    print(f"❌ Failed to save salesperson turn: {e}")
 
-                    # Wait for responder (usually faster than S3)
-                    primary_rep = await responder_task
-                    print(f"🎯 {'Direct' if direct_rep else 'AI'} → {primary_rep.get('name')} ({primary_rep.get('role')})")
+                await websocket.send_json({"type": "transcription", "text": transcribed, "speaker": "salesperson"})
 
-                    # Build salesperson turn (S3 URL filled in after upload finishes)
-                    salesperson_turn = {
-                        "turn_number": current_turn, "speaker": "salesperson",
-                        "speaker_name": "Salesperson", "text": transcribed,
-                        "audio_url": None,  # filled after upload_task
-                        "timestamp": format_duration(len(conv_history) * 10),
-                        "duration_seconds": 5.0, "created_at": current_timestamp()
-                    }
-                    conv_history.append(salesperson_turn)
-
-                    # Check scheduled end time
-                    meeting_latest = await meeting_col.find_one({"_id": meeting_id})
-                    exp_end = meeting_latest.get("expected_end_time")
-                    if exp_end and current_timestamp() >= exp_end:
-                        started_at = meeting_latest.get("started_at")
-                        ended_at = current_timestamp()
-                        duration_seconds = (ended_at - started_at).total_seconds() if started_at else 0
-                        await meeting_col.update_one({"_id": meeting_id}, {"$set": {
-                            "status": "completed", "ended_at": ended_at,
-                            "total_duration_seconds": duration_seconds
-                        }})
-                        await websocket.send_json({"type": "meeting_ended",
-                            "message": "Meeting ended due to scheduled end time",
-                            "ended_at": ended_at.isoformat()})
-                        break
-                        
+                # ── IMMEDIATE END: skip AI stream entirely if end was requested ──
+                if end_requested:
+                    goodbye_text = "Thank you for the meeting. It was great speaking with you. Goodbye!"
                     await websocket.send_json({
-                        "type": "ai_thinking",
-                        "message": f"{primary_rep['name']} is preparing to speak..."
+                        "type": "ai_response_text",
+                        "text": goodbye_text,
+                        "speaker_name": representatives[0]["name"] if representatives else "Representative",
+                        "speaker_role": representatives[0].get("role", "") if representatives else "",
+                        "is_primary": True,
+                        "is_chunk": False,
                     })
-                    
-                    # Stream OpenAI response token by token
-                    token_stream = openai_service.stream_response(
-                        conversation_history=conv_history,
+                    await websocket.send_json({"type": "no_audio"})
+
+                    meeting_latest = await meeting_col.find_one({"_id": meeting_id})
+                    started_at = meeting_latest.get("started_at")
+                    ended_at = current_timestamp()
+                    duration_seconds = (ended_at - started_at).total_seconds() if started_at else 0
+                    await meeting_col.update_one({"_id": meeting_id}, {"$set": {
+                        "status": "completed", "ended_at": ended_at,
+                        "total_duration_seconds": duration_seconds,
+                        "end_after_response": False
+                    }})
+                    await websocket.send_json({
+                        "type": "meeting_ended",
+                        "message": "Meeting ended by user",
+                        "ended_at": ended_at.isoformat(),
+                        "duration_seconds": duration_seconds
+                    })
+                    print(f"✅ Meeting ended immediately on user phrase ({duration_seconds:.0f}s)")
+                    break
+
+                await websocket.send_json({"type": "ai_thinking", "message": "AI is thinking..."})
+
+                conversation = await db_prefetch_task
+                conv_history = list(conversation.get("turns", []))
+
+                # Find replying rep
+                msg_lower = transcribed.lower()
+                direct_rep = None
+                for rep in representatives:
+                    rep_name = rep.get("name", "").lower().strip()
+                    rep_role = rep.get("role", "").lower().strip()
+                    if rep_name and rep_name in msg_lower:
+                        direct_rep = rep
+                        break
+                    if rep_role and rep_role in msg_lower:
+                        direct_rep = rep
+                        break
+
+                async def _select_responder(conv_history_snapshot):
+                    if direct_rep:
+                        return direct_rep
+                    responder_data = await openai_service.fast_identify_responder(
+                        conversation_history=conv_history_snapshot,
                         representatives=representatives,
                         salesperson_data=salesperson,
                         company_data=company,
                         current_message=transcribed,
-                        primary_rep=primary_rep,
-                        methodology_prompt=methodology_prompt,
-                        admin_system_prompt=admin_system_prompt,
+                        meeting_goal=meeting.get("meeting_goal", ""),
                         role_descriptions=role_descriptions,
                     )
+                    for rep in representatives:
+                        if rep.get("id") == responder_data.get("primary_rep_id"):
+                            return rep
+                    return representatives[0]
 
-                    v_id, personality = await _get_rep_voice_and_personality(primary_rep)
-                    rep_gender = (primary_rep.get("gender") or "female").lower()
-                    if rep_gender not in ("male", "female"):
-                        rep_gender = "female"
-                    audio_stream = elevenlabs_service.stream_tts_websocket(
-                        token_stream=token_stream,
-                        voice_id=v_id,
-                        personality=personality,
-                        gender=rep_gender,
-                    )
+                upload_task     = asyncio.create_task(
+                    _upload_audio(combined_salesperson_audio, meeting_id, current_turn, "salesperson")
+                    if combined_salesperson_audio else asyncio.sleep(0)
+                )
+                responder_task  = asyncio.create_task(_select_responder(conv_history))
+                primary_rep = await responder_task
+                print(f"🎯 {'Direct' if direct_rep else 'AI'} → {primary_rep.get('name')} ({primary_rep.get('role')})")
 
+                salesperson_turn["audio_url"] = None
+                conv_history.append(salesperson_turn)
+
+                meeting_latest = await meeting_col.find_one({"_id": meeting_id})
+                exp_end = meeting_latest.get("expected_end_time")
+                if exp_end and current_timestamp() >= exp_end:
+                    started_at = meeting_latest.get("started_at")
+                    ended_at = current_timestamp()
+                    duration_seconds = (ended_at - started_at).total_seconds() if started_at else 0
+                    await meeting_col.update_one({"_id": meeting_id}, {"$set": {
+                        "status": "completed", "ended_at": ended_at,
+                        "total_duration_seconds": duration_seconds
+                    }})
+                    await websocket.send_json({"type": "meeting_ended",
+                        "message": "Meeting ended due to scheduled end time",
+                        "ended_at": ended_at.isoformat()})
+                    break
+
+                await websocket.send_json({
+                    "type": "ai_thinking",
+                    "message": f"{primary_rep['name']} is preparing to speak..."
+                })
+
+                token_stream = openai_service.stream_response(
+                    conversation_history=conv_history,
+                    representatives=representatives,
+                    salesperson_data=salesperson,
+                    company_data=company,
+                    current_message=transcribed,
+                    primary_rep=primary_rep,
+                    methodology_prompt=methodology_prompt,
+                    admin_system_prompt=admin_system_prompt,
+                    role_descriptions=role_descriptions,
+                )
+
+                v_id, personality = await _get_rep_voice_and_personality(primary_rep)
+                rep_gender = (primary_rep.get("gender") or "female").lower()
+                if rep_gender not in ("male", "female"):
+                    rep_gender = "female"
+                audio_stream = elevenlabs_service.stream_tts_websocket(
+                    token_stream=token_stream,
+                    voice_id=v_id,
+                    personality=personality,
+                    gender=rep_gender,
+                )
+
+                async def _render_ai_response():
+                    nonlocal active_ai_save_task
                     full_text = ""
                     full_audio_bytes = b""
                     chunk_no = 0
 
                     print(f"🚀 Starting WS stream to frontend for {primary_rep['name']}...")
 
-                    async for msg_type, data in audio_stream:
-                        if msg_type == "text":
-                            full_text += data
-                            await websocket.send_json({
-                                "type": "ai_response_text",
-                                "text": data,
-                                "speaker_id": primary_rep["id"],
-                                "speaker_name": primary_rep["name"],
-                                "speaker_role": primary_rep["role"],
-                                "is_primary": True,
-                                "is_chunk": True
-                            })
-                        elif msg_type == "audio":
-                            chunk_no += 1
-                            full_audio_bytes += data
-                            import base64
-                            await websocket.send_json({
-                                "type": "ai_audio_complete",
-                                "audio_data": base64.b64encode(data).decode(),
-                                "audio_mime_type": "audio/mpeg",
-                                "speaker_id": primary_rep["id"],
-                                "speaker_name": primary_rep["name"],
-                                "speaker_role": primary_rep["role"],
-                                "is_primary": True,
-                                "is_final": False,
-                                "chunk_no": chunk_no
-                            })
-                    
-                    full_text = full_text.strip()
-                    if not full_text:
-                        full_text = "I understand. Could you tell me more about that?"
-                        
-                    # Final complete notification
-                    await websocket.send_json({"type": "no_audio"})
-                    print("✅ Stream finished!")
-
-                    # ── POST-STREAM: collect S3 results + upload AI audio in parallel ──
-                    primary_turn_number = current_turn + 1
-
-                    # Collect salesperson S3 URL (upload_task started before stream)
                     try:
-                        salesperson_audio_url = await upload_task
-                    except Exception:
-                        salesperson_audio_url = None
-                    # ✅ Set BEFORE creating _finish_and_save task — closure captures the dict
-                    salesperson_turn["audio_url"] = salesperson_audio_url
+                        async for msg_type, data in audio_stream:
+                            if msg_type == "text":
+                                full_text += data
+                                await websocket.send_json({
+                                    "type": "ai_response_text",
+                                    "text": data,
+                                    "speaker_id": primary_rep["id"],
+                                    "speaker_name": primary_rep["name"],
+                                    "speaker_role": primary_rep["role"],
+                                    "is_primary": True,
+                                    "is_chunk": True
+                                })
+                            elif msg_type == "audio":
+                                chunk_no += 1
+                                full_audio_bytes += data
+                                import base64
+                                await websocket.send_json({
+                                    "type": "ai_audio_complete",
+                                    "audio_data": base64.b64encode(data).decode(),
+                                    "audio_mime_type": "audio/mpeg",
+                                    "speaker_id": primary_rep["id"],
+                                    "speaker_name": primary_rep["name"],
+                                    "speaker_role": primary_rep["role"],
+                                    "is_primary": True,
+                                    "is_final": False,
+                                    "chunk_no": chunk_no
+                                })
 
-                    # Capture locals for the closure — avoids loop-variable overwrite bug
-                    _full_audio_bytes   = full_audio_bytes
-                    _full_text          = full_text
-                    _primary_rep        = primary_rep
-                    _primary_turn_num   = primary_turn_number
-                    _salesperson_turn   = dict(salesperson_turn)  # snapshot, not reference
+                        full_text = full_text.strip()
+                        if not full_text:
+                            full_text = "I understand. Could you tell me more about that?"
 
-                    # Upload AI audio + DB save in background
-                    async def _finish_and_save():
-                        ai_audio_url = None
-                        if _full_audio_bytes:
-                            ai_audio_url = await _upload_audio(
-                                _full_audio_bytes, meeting_id, _primary_turn_num, _primary_rep["id"]
-                            )
-                        p_turn = {
-                            "turn_number": _primary_turn_num,
-                            "speaker": _primary_rep["id"],
-                            "speaker_name": _primary_rep["name"],
-                            "text": _full_text,
-                            "audio_url": ai_audio_url,
-                            "timestamp": format_duration(len(conv_history) * 10),
-                            "duration_seconds": max(1.0, len(_full_audio_bytes) / 32000),
-                            "created_at": current_timestamp()
-                        }
-                        turns_to_save = [_salesperson_turn, p_turn]
-                        total_ai_time = p_turn["duration_seconds"]
+                        await websocket.send_json({"type": "no_audio"})
+                        print("✅ Stream finished!")
+
+                        primary_turn_number = current_turn + 1
                         try:
-                            await conv_col.update_one(
-                                {"session_id": session_id},
-                                {
-                                    "$inc": {"salesperson_talk_time": 5.0, "representatives_talk_time": total_ai_time},
-                                    "$push": {"turns": {"$each": turns_to_save}},
-                                    "$set": {"total_turns": _primary_turn_num}
-                                }
-                            )
-                            print(f"💾 Saved {len(turns_to_save)} turns (up to #{_primary_turn_num}) | salesperson audio: {_salesperson_turn.get('audio_url') is not None}")
-                        except Exception as e:
-                            print(f"❌ DB save error: {e}")
-                        return p_turn
+                            salesperson_audio_url = await upload_task
+                        except Exception:
+                            salesperson_audio_url = None
+                        salesperson_turn["audio_url"] = salesperson_audio_url
 
-                    # Fire and forget — don't await, let stream continue
-                    save_task = asyncio.create_task(_finish_and_save())
+                        _full_audio_bytes = full_audio_bytes
+                        _full_text = full_text
+                        _primary_rep = primary_rep
+                        _primary_turn_num = primary_turn_number
+                        _salesperson_turn = dict(salesperson_turn)
 
+                        async def _finish_and_save():
+                            ai_audio_url = None
+                            if _full_audio_bytes:
+                                ai_audio_url = await _upload_audio(
+                                    _full_audio_bytes, meeting_id, _primary_turn_num, _primary_rep["id"]
+                                )
+                            p_turn = {
+                                "turn_number": _primary_turn_num,
+                                "speaker": _primary_rep["id"],
+                                "speaker_name": _primary_rep["name"],
+                                "text": _full_text,
+                                "audio_url": ai_audio_url,
+                                "timestamp": format_duration(len(conv_history) * 10),
+                                "duration_seconds": max(1.0, len(_full_audio_bytes) / 32000),
+                                "created_at": current_timestamp()
+                            }
+                            turns_to_save = [_salesperson_turn, p_turn]
+                            total_ai_time = p_turn["duration_seconds"]
+                            try:
+                                await conv_col.update_one(
+                                    {"session_id": session_id},
+                                    {
+                                        "$inc": {"salesperson_talk_time": 5.0, "representatives_talk_time": total_ai_time},
+                                        "$push": {"turns": {"$each": turns_to_save}},
+                                        "$set": {"total_turns": _primary_turn_num}
+                                    }
+                                )
+                                print(f"💾 Saved {len(turns_to_save)} turns (up to #{_primary_turn_num}) | salesperson audio: {_salesperson_turn.get('audio_url') is not None}")
+                            except Exception as e:
+                                print(f"❌ DB save error: {e}")
+                            return p_turn
+
+                        active_ai_save_task = asyncio.create_task(_finish_and_save())
+                        await active_ai_save_task
+
+                        await websocket.send_json({
+                            "type": "conversation_saved",
+                            "session_id": session_id,
+                            "turns": [
+                                {"turn_number": current_turn, "speaker": "salesperson",
+                                 "speaker_name": "Salesperson", "text": transcribed},
+                                {"turn_number": primary_turn_number, "speaker": primary_rep["id"],
+                                 "speaker_name": primary_rep["name"], "text": full_text},
+                            ]
+                        })
+
+                        meeting_now = await meeting_col.find_one({"_id": meeting_id})
+                        if meeting_now.get("end_after_response"):
+                            started_at = meeting_now.get("started_at")
+                            ended_at = current_timestamp()
+                            duration_seconds = 0
+                            if started_at:
+                                duration_seconds = (ended_at - started_at).total_seconds()
+                            await meeting_col.update_one({"_id": meeting_id}, {"$set": {
+                                "status": "completed", "ended_at": ended_at,
+                                "total_duration_seconds": duration_seconds,
+                                "end_after_response": False
+                            }})
+                            await websocket.send_json({
+                                "type": "meeting_ended",
+                                "message": "Meeting ended by user phrase after agent response",
+                                "ended_at": ended_at.isoformat(),
+                                "duration_seconds": duration_seconds
+                            })
+                    except asyncio.CancelledError:
+                        await websocket.send_json({
+                            "type": "ai_interrupted",
+                            "message": "Agent response was interrupted by the user."
+                        })
+                        raise
+                    except Exception as e:
+                        print(f"❌ AI response stream error: {e}")
+                        await websocket.send_json({"type": "error", "message": str(e)})
+                        raise
+
+                active_ai_task = asyncio.create_task(_render_ai_response())
+                try:
+                    await active_ai_task
+                except asyncio.CancelledError:
+                    pass
+
+            elif msg_type == "interrupt":
+                if await _cancel_active_ai_response():
                     await websocket.send_json({
-                        "type": "conversation_saved",
-                        "session_id": session_id,
-                        "turns": [
-                            {"turn_number": current_turn, "speaker": "salesperson",
-                             "speaker_name": "Salesperson", "text": transcribed},
-                            {"turn_number": primary_turn_number, "speaker": primary_rep["id"],
-                             "speaker_name": primary_rep["name"], "text": full_text},
-                        ]
+                        "type": "ai_interrupted",
+                        "message": "Agent response cancelled by user interrupt."
                     })
 
-                    # Check if meeting should end after this response
-                    meeting_now = await meeting_col.find_one({"_id": meeting_id})
-                    if meeting_now.get("end_after_response"):
-                        # Wait for save to complete before ending
-                        await save_task
-                        started_at = meeting_now.get("started_at")
-                        ended_at = current_timestamp()
-                        duration_seconds = 0
-                        if started_at:
-                            duration_seconds = (ended_at - started_at).total_seconds()
-                        await meeting_col.update_one({"_id": meeting_id}, {"$set": {
-                            "status": "completed", "ended_at": ended_at,
-                            "total_duration_seconds": duration_seconds,
-                            "end_after_response": False
-                        }})
-                        await websocket.send_json({
-                            "type": "meeting_ended",
-                            "message": "Meeting ended by user phrase after agent response",
-                            "ended_at": ended_at.isoformat(),
-                            "duration_seconds": duration_seconds
-                        })
-            
             elif msg_type == "ping":
                 await websocket.send_json({"type": "pong"})
-            
+
             elif msg_type == "disconnect":
                 break
     
@@ -2162,6 +2217,12 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
         except:
             pass
     finally:
+        if receive_task and not receive_task.done():
+            receive_task.cancel()
+        if active_ai_task and not active_ai_task.done():
+            active_ai_task.cancel()
+        if active_ai_save_task and not active_ai_save_task.done():
+            active_ai_save_task.cancel()
         audio_stream_service.clear_stream(session_id)
         # Trigger AI Analytics in background after disconnect
         asyncio.create_task(_generate_and_save_analytics(session_id))
