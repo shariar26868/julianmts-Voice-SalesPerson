@@ -14,8 +14,8 @@ from app.models.schemas import SalesMethodologyCreate, CoreField
 from app.config.database import get_sales_methodology_collection
 from app.utils.helpers import current_timestamp, build_api_response
 
-router = APIRouter(tags=["Methodology"])
-
+# router = APIRouter(tags=["Methodology"])
+router = APIRouter(prefix="/api/methodology", tags=["Methodology"])
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Default methodologies (pre-seeded from the screenshots)

@@ -24,10 +24,10 @@ from typing import Optional
 from pydantic import BaseModel, Field
 from app.config.database import get_opportunities_collection
 from app.utils.helpers import generate_id, current_timestamp, build_api_response
+# 
+# router = APIRouter(tags=["Opportunities"])
 
-router = APIRouter(tags=["Opportunities"])
-
-
+router = APIRouter(prefix="/api/opportunities", tags=["Opportunities"])
 # ─────────────────────────────────────────────────────────────────────────────
 # Pydantic Models
 # ─────────────────────────────────────────────────────────────────────────────

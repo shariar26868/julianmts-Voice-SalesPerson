@@ -142,6 +142,9 @@ app.include_router(company.router, tags=["Company"])
 app.include_router(meeting.router, tags=["Meeting"])
 app.include_router(conversation.router, tags=["Conversation"])
 app.include_router(admin.router)
-app.include_router(methodology.router, prefix="/api/methodology", tags=["Methodology"])
-app.include_router(opportunities.router, prefix="/api/opportunities", tags=["Opportunities"])
+# app.include_router(methodology.router, prefix="/api/methodology", tags=["Methodology"])
+# app.include_router(opportunities.router, prefix="/api/opportunities", tags=["Opportunities"])
 
+
+app.include_router(methodology.router)
+app.include_router(opportunities.router)
