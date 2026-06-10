@@ -27,6 +27,7 @@ from app.utils.helpers import generate_id, current_timestamp, build_api_response
 # 
 # router = APIRouter(tags=["Opportunities"])
 
+# router = APIRouter(prefix="/api/opportunities", tags=["Opportunities"])
 router = APIRouter(prefix="/api/opportunities", tags=["Opportunities"])
 # ─────────────────────────────────────────────────────────────────────────────
 # Pydantic Models
@@ -49,7 +50,7 @@ class OpportunityUpdate(BaseModel):
 # Routes
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.post("/", response_model=dict)
+@router.post("", response_model=dict)
 async def create_opportunity(body: OpportunityCreate):
     """
     Create a new opportunity manually.
