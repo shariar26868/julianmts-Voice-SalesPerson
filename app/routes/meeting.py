@@ -69,9 +69,10 @@ async def create_meeting(meeting_data: MeetingCreate):
             meeting_goal=meeting_data.meeting_goal
         )
         
-        # Create meeting document
+        # Generate session_id if not provided
+        session_id = meeting_data.session_id or generate_id()
         meeting_id = generate_id()
-        
+
         meeting_doc = {
             "_id": meeting_id,
             "salesperson_id": meeting_data.salesperson_id,
@@ -86,6 +87,7 @@ async def create_meeting(meeting_data: MeetingCreate):
             "difficulty": meeting_data.difficulty.value,
             "sales_methodology": meeting_data.custom_sales_methodology if meeting_data.sales_methodology.value == "Other" and meeting_data.custom_sales_methodology else meeting_data.sales_methodology.value,
             "methodology_description": meeting_data.methodology_description or "",
+            "session_id": session_id,
             "status": "pending",  # pending, active, completed
             "created_at": current_timestamp(),
             "started_at": None,
@@ -118,6 +120,7 @@ async def create_meeting(meeting_data: MeetingCreate):
                 "difficulty": meeting_data.difficulty.value,
                 "top_5_questions": top_questions,
                 "representatives": reps_response,
+                "session_id": session_id,
                 "status": "pending"
             },
             message="Meeting created successfully. Ready to start!"
@@ -164,7 +167,7 @@ async def get_meeting(meeting_id: str):
             {"meeting_id": meeting_id},
             sort=[("attempt_number", -1)]
         )
-        meeting["session_id"] = conversation.get("session_id") if conversation else None
+        meeting["session_id"] = meeting.get("session_id") or (conversation.get("session_id") if conversation else None)
         
         return build_api_response(
             success=True,

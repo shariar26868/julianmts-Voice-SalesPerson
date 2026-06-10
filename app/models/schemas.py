@@ -369,6 +369,7 @@ class MeetingCreate(BaseModel):
     sales_methodology: SalesMethodology = SalesMethodology.MEDDIC
     custom_sales_methodology: Optional[str] = None  # used when sales_methodology = "Other"
     methodology_description: Optional[str] = None  # extra context to influence AI behavior
+    session_id: Optional[str] = None
 
 
 class MeetingResponse(BaseModel):
@@ -386,6 +387,7 @@ class MeetingResponse(BaseModel):
     sales_methodology: str
     status: str
     created_at: datetime
+    session_id: Optional[str] = None
 
 
 class ConversationTurn(BaseModel):

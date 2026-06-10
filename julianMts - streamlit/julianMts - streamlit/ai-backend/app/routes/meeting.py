@@ -67,7 +67,8 @@ async def create_meeting(meeting_data: MeetingCreate):
             meeting_goal=meeting_data.meeting_goal
         )
         
-        # Create meeting document
+        # Generate session_id if not provided
+        session_id = meeting_data.session_id or generate_id()
         meeting_id = generate_id()
         
         meeting_doc = {
@@ -81,6 +82,7 @@ async def create_meeting(meeting_data: MeetingCreate):
             "personality": meeting_data.personality.value,
             "duration_minutes": meeting_data.duration_minutes,
             "difficulty": meeting_data.difficulty.value,
+            "session_id": session_id,
             "status": "pending",  # pending, active, completed
             "created_at": current_timestamp(),
             "started_at": None,
@@ -109,6 +111,7 @@ async def create_meeting(meeting_data: MeetingCreate):
                 "meeting_id": meeting_id,
                 "top_5_questions": top_questions,
                 "representatives": reps_response,
+                "session_id": session_id,
                 "status": "pending"
             },
             message="Meeting created successfully. Ready to start!"
@@ -148,6 +151,7 @@ async def get_meeting(meeting_id: str):
         
         meeting["id"] = str(meeting.pop("_id"))
         meeting["representatives"] = representatives
+        meeting["session_id"] = meeting.get("session_id")
         
         return build_api_response(
             success=True,

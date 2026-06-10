@@ -123,6 +123,7 @@ class MeetingCreate(BaseModel):
     personality: PersonalityType = PersonalityType.NICE
     duration_minutes: int = 30
     difficulty: DifficultyLevel = DifficultyLevel.BEGINNER
+    session_id: Optional[str] = None
 
 
 class MeetingResponse(BaseModel):
@@ -138,6 +139,7 @@ class MeetingResponse(BaseModel):
     difficulty: str
     status: str  # pending, active, completed
     created_at: datetime
+    session_id: Optional[str] = None
 
 
 # Conversation Schemas

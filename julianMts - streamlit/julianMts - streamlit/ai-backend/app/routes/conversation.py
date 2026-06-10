@@ -64,8 +64,10 @@ async def send_message(
         
         if not conversation:
             print("📝 Creating new conversation document...")
+            session_id = meeting.get("session_id") or generate_id()
             conversation = {
                 "_id": generate_id(),
+                "session_id": session_id,
                 "meeting_id": meeting_id,
                 "turns": [],
                 "total_turns": 0,
@@ -75,6 +77,13 @@ async def send_message(
             }
             await conversation_collection.insert_one(conversation)
             print("✅ Conversation document created")
+        elif not conversation.get("session_id"):
+            session_id = meeting.get("session_id") or generate_id()
+            await conversation_collection.update_one(
+                {"_id": conversation["_id"]},
+                {"$set": {"session_id": session_id}}
+            )
+            conversation["session_id"] = session_id
         
         conversation_history = conversation.get("turns", [])
         current_turn = len(conversation_history) + 1
@@ -477,8 +486,10 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
         conversation = await conversation_collection.find_one({"meeting_id": meeting_id})
         
         if not conversation:
+            session_id = meeting.get("session_id") or generate_id()
             conversation = {
                 "_id": generate_id(),
+                "session_id": session_id,
                 "meeting_id": meeting_id,
                 "turns": [],
                 "total_turns": 0,
@@ -487,6 +498,13 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
                 "created_at": current_timestamp()
             }
             await conversation_collection.insert_one(conversation)
+        elif not conversation.get("session_id"):
+            session_id = meeting.get("session_id") or generate_id()
+            await conversation_collection.update_one(
+                {"_id": conversation["_id"]},
+                {"$set": {"session_id": session_id}}
+            )
+            conversation["session_id"] = session_id
         
         # Send connection confirmation
         await websocket.send_json({

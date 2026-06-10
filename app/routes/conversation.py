@@ -1131,13 +1131,23 @@ async def send_message(
         conversation = await conversation_collection.find_one({"meeting_id": meeting_id})
         
         if not conversation:
+            session_id = meeting.get("session_id") or generate_id()
             conversation = {
-                "_id": generate_id(), "meeting_id": meeting_id,
+                "_id": generate_id(),
+                "session_id": session_id,
+                "meeting_id": meeting_id,
                 "turns": [], "total_turns": 0,
                 "salesperson_talk_time": 0.0, "representatives_talk_time": 0.0,
                 "created_at": current_timestamp()
             }
             await conversation_collection.insert_one(conversation)
+        elif not conversation.get("session_id"):
+            session_id = meeting.get("session_id") or generate_id()
+            await conversation_collection.update_one(
+                {"_id": conversation["_id"]},
+                {"$set": {"session_id": session_id}}
+            )
+            conversation["session_id"] = session_id
         
         existing_turns = conversation.get("turns", [])
         current_turn   = conversation.get("total_turns", len(existing_turns)) + 1
@@ -1745,7 +1755,12 @@ async def live_conversation(websocket: WebSocket, meeting_id: str):
         # Count existing sessions to determine attempt number
         existing_count = await conv_col.count_documents({"meeting_id": meeting_id})
         attempt_number = existing_count + 1
-        session_id = generate_id()  # unique per session
+        
+        # Reuse pre-created session_id if first attempt and it exists on meeting
+        if attempt_number == 1 and meeting.get("session_id"):
+            session_id = meeting["session_id"]
+        else:
+            session_id = generate_id()  # unique per session
 
         # Always create a FRESH conversation document for this session
         conversation = {
